@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { ComponentProps } from 'react';
 import { Text, type ColorValue } from 'react-native';
+import { BrandHeader } from './BrandHeader';
 import { colors, fonts } from './ui';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -9,9 +10,9 @@ export const tabScreenOptions = {
   tabBarActiveTintColor: colors.primary,
   tabBarInactiveTintColor: colors.muted,
   tabBarStyle: { backgroundColor: colors.card, borderTopColor: colors.border, height: 64, paddingTop: 6, paddingBottom: 6 },
-  headerStyle: { backgroundColor: colors.background },
-  headerShadowVisible: false,
-  headerTitleStyle: { fontFamily: fonts.display, fontSize: 26, color: colors.text },
+  header: ({ options, route }: { options: { title?: string }; route: { name: string } }) => (
+    <BrandHeader title={options.title ?? route.name} />
+  ),
   sceneStyle: { backgroundColor: colors.background },
 };
 

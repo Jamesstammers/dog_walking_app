@@ -48,6 +48,13 @@ select assert(not slot_available((select id from svc where kind='sit_in' and dur
 select assert((select count(*) from available_slots((select id from svc where kind='solo_walk' and duration_min=60), ((select mon10 from t) at time zone 'Europe/London')::date)) = 16,
   'solo 1h: 19 starts 08:00-17:00 minus 09:30, 10:00, 10:30 blocked by the group walk');
 
+-- Block booking: three weekly solo walks share a batch id.
+select request_booking((select id from svc where kind='solo_walk' and duration_min=30), (select mon10 from t) + make_interval(days => 7*w, hours => 4),
+  array['10000000-0000-0000-0000-000000000001']::uuid[], 'invoice', null, '20000000-0000-0000-0000-000000000001')
+from generate_series(0, 2) w;
+select assert((select count(*) from bookings where batch_id = '20000000-0000-0000-0000-000000000001') = 3,
+  'block booking creates three linked bookings');
+
 -- Unapproved customer B cannot book.
 set test.uid = '00000000-0000-0000-0000-000000000003';
 do $$ begin

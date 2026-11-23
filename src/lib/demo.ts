@@ -74,7 +74,7 @@ function seed() {
     { id: 'd4', owner_id: 'c3', name: 'Pepper', breed: 'Jack Russell', vet_details: null, vaccinations_up_to_date: false, good_with_other_dogs: false, notes: null },
   ];
   const w1 = workday(1), w2 = workday(w1 + 1), w3 = workday(w2 + 1);
-  const mk = (id: string, customer: string, svc: string, starts: string, status: string, method: string, dogIds: string[], notes: string | null = null) => {
+  const mk = (id: string, customer: string, svc: string, starts: string, status: string, method: string, dogIds: string[], notes: string | null = null, batch: string | null = null) => {
     const s = services.find((x) => x.id === svc)!;
     return {
       booking: {
@@ -82,6 +82,7 @@ function seed() {
         ends_at: new Date(new Date(starts).getTime() + s.duration_min * 60_000).toISOString(),
         status, payment_method: method, payment_status: status === 'approved' && method === 'card' ? 'paid' : 'unpaid',
         price_pence: s.price_pence, customer_notes: notes, owner_notes: null, created_at: new Date().toISOString(), decided_at: null,
+        batch_id: batch,
       },
       dogs: dogIds,
     };
@@ -89,7 +90,10 @@ function seed() {
   const seeded = [
     mk('b1', DEMO_CUSTOMER_ID, 's4', at(w1, '10:00'), 'approved', 'card', ['d1', 'd2']),
     mk('b2', 'c2', 's4', at(w1, '10:00'), 'approved', 'invoice', ['d3']),
-    mk('b3', 'c2', 's2', at(w1, '14:00'), 'requested', 'card', ['d3'], 'Back gate code is 1234'),
+    // A block booking: the same walk on three weeks running, waiting for approval.
+    mk('b3', 'c2', 's2', at(w1, '14:00'), 'requested', 'card', ['d3'], 'Back gate code is 1234', 'batch-tom'),
+    mk('b3b', 'c2', 's2', at(w1 + 7, '14:00'), 'requested', 'card', ['d3'], 'Back gate code is 1234', 'batch-tom'),
+    mk('b3c', 'c2', 's2', at(w1 + 14, '14:00'), 'requested', 'card', ['d3'], 'Back gate code is 1234', 'batch-tom'),
     mk('b4', DEMO_CUSTOMER_ID, 's6', at(w2, '12:00'), 'requested', 'invoice', ['d1'], 'Please top up water bowl'),
     mk('b5', 'c2', 's1', at(w3, '09:00'), 'approved', 'card', ['d3']),
   ];
@@ -251,7 +255,7 @@ export const demoClient = {
         ends_at: new Date(new Date(args.p_starts_at).getTime() + svc.duration_min * 60_000).toISOString(),
         status: 'requested', payment_method: args.p_payment_method, payment_status: 'unpaid',
         price_pence: svc.price_pence, customer_notes: args.p_notes, owner_notes: null,
-        created_at: new Date().toISOString(), decided_at: null,
+        created_at: new Date().toISOString(), decided_at: null, batch_id: args.p_batch_id ?? null,
       });
       for (const dog_id of args.p_dog_ids) db.booking_dogs.push({ booking_id: id, dog_id });
       return { data: id, error: null };

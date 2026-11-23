@@ -46,6 +46,7 @@ export type Booking = {
   payment_status: PaymentStatus;
   price_pence: number;
   customer_notes: string | null;
+  batch_id: string | null;
   services?: Pick<Service, 'name' | 'kind'>;
   booking_dogs?: { dogs: Pick<Dog, 'name'> }[];
 };

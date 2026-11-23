@@ -104,12 +104,15 @@ create table bookings (
   stripe_invoice_id        text,
   customer_notes text,
   owner_notes    text,
+  -- Bookings requested together (a block booking) share a batch id.
+  batch_id       uuid,
   created_at     timestamptz not null default now(),
   decided_at     timestamptz
 );
 
 create index bookings_time_idx on bookings using gist (tstzrange(starts_at, ends_at));
 create index bookings_customer_idx on bookings (customer_id);
+create index bookings_batch_idx on bookings (batch_id);
 
 create table booking_dogs (
   booking_id    uuid not null references bookings on delete cascade,
@@ -208,7 +211,8 @@ $$;
 -- Customers create bookings through this function so the rules always apply.
 create or replace function request_booking(
   p_service_id uuid, p_starts_at timestamptz, p_dog_ids uuid[],
-  p_payment_method payment_method, p_notes text default null
+  p_payment_method payment_method, p_notes text default null,
+  p_batch_id uuid default null
 ) returns uuid
 language plpgsql security definer set search_path = public as $$
 declare
@@ -236,9 +240,9 @@ begin
 
   select * into svc from services where id = p_service_id;
 
-  insert into bookings (customer_id, service_id, starts_at, ends_at, payment_method, price_pence, customer_notes)
+  insert into bookings (customer_id, service_id, starts_at, ends_at, payment_method, price_pence, customer_notes, batch_id)
   values (me.id, svc.id, p_starts_at, p_starts_at + make_interval(mins => svc.duration_min),
-          p_payment_method, svc.price_pence, p_notes)
+          p_payment_method, svc.price_pence, p_notes, p_batch_id)
   returning id into new_id;
 
   insert into booking_dogs (booking_id, dog_id) select new_id, unnest(p_dog_ids);

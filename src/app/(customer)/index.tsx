@@ -1,6 +1,7 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { ServiceBadge } from '../../components/BookingCard';
 import { Button, Card, colors, fonts, text } from '../../components/ui';
 import { useAuth } from '../../lib/auth';
 import { formatDateTime, formatPrice, statusLabels } from '../../lib/format';
@@ -20,9 +21,12 @@ export default function MyBookings() {
       .from('bookings')
       .select('*, services(name, kind), booking_dogs(dogs(name))')
       .eq('customer_id', session.user.id)
-      .order('starts_at', { ascending: false })
-      .limit(100);
-    setBookings((data as Booking[]) ?? []);
+      .order('starts_at')
+      .limit(200);
+    // Upcoming bookings first (soonest at the top), then past ones (most recent first).
+    const all = (data as Booking[]) ?? [];
+    const nowIso = new Date().toISOString();
+    setBookings([...all.filter((b) => b.starts_at >= nowIso), ...all.filter((b) => b.starts_at < nowIso).reverse()]);
     setRefreshing(false);
   }, [session]);
 
@@ -62,8 +66,13 @@ export default function MyBookings() {
         return (
           <Card>
             <View style={styles.row}>
-              <Text style={text.title}>{item.services?.name}</Text>
-              <Text style={[styles.status, item.status === 'approved' && { color: colors.primary }]}>{statusLabels[item.status]}</Text>
+              <ServiceBadge kind={item.services?.kind} />
+              <View style={{ flex: 1 }}>
+                <Text style={text.title}>{item.services?.name}</Text>
+                <Text style={[styles.status, item.status === 'approved' && { color: colors.primary }]}>
+                  {statusLabels[item.status]}{item.batch_id ? ' · Block booking' : ''}
+                </Text>
+              </View>
             </View>
             <Text style={text.body}>{formatDateTime(item.starts_at)}</Text>
             <Text style={text.muted}>
@@ -79,6 +88,6 @@ export default function MyBookings() {
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 },
   status: { fontSize: 13, fontFamily: fonts.bold, color: colors.muted },
 });

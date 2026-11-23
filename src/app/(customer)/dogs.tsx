@@ -1,3 +1,4 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ScrollView, Switch, StyleSheet, Text, View } from 'react-native';
@@ -6,6 +7,8 @@ import { useAuth } from '../../lib/auth';
 import { notify } from '../../lib/dialog';
 import { supabase } from '../../lib/supabase';
 import type { Dog } from '../../lib/types';
+
+const avatarTints = [colors.pink, colors.primary, colors.accent, colors.blue];
 
 const emptyDog = { name: '', breed: '', vet_details: '', notes: '', vaccinations_up_to_date: false, good_with_other_dogs: true };
 
@@ -72,10 +75,18 @@ export default function MyDogs() {
 
   return (
     <ScrollView style={{ backgroundColor: colors.background }} contentContainerStyle={{ padding: 16 }}>
-      {dogs.map((dog) => (
+      {dogs.map((dog, i) => (
         <Card key={dog.id} onPress={() => edit(dog)}>
-          <Text style={text.title}>{dog.name}</Text>
-          <Text style={text.muted}>{[dog.breed, dog.good_with_other_dogs ? 'Good with dogs' : 'Prefers solo walks'].filter(Boolean).join(' · ')}</Text>
+          <View style={styles.dogRow}>
+            <View style={[styles.avatar, { backgroundColor: avatarTints[i % avatarTints.length] }]}>
+              <Ionicons name="paw" size={22} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={text.title}>{dog.name}</Text>
+              <Text style={text.muted}>{[dog.breed, dog.good_with_other_dogs ? 'Good with dogs' : 'Prefers solo walks'].filter(Boolean).join(' · ')}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+          </View>
         </Card>
       ))}
       {dogs.length === 0 && <SectionTitle>No dogs added yet</SectionTitle>}
@@ -85,5 +96,7 @@ export default function MyDogs() {
 }
 
 const styles = StyleSheet.create({
+  dogRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  avatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   toggle: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 },
 });
