@@ -33,6 +33,7 @@ create table dogs (
   vaccinations_up_to_date boolean not null default false,
   good_with_other_dogs boolean not null default true,
   notes         text,
+  photo_url     text,
   created_at    timestamptz not null default now()
 );
 

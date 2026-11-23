@@ -7,6 +7,16 @@ import { supabase } from '../../lib/supabase';
 import type { Service } from '../../lib/types';
 
 type WorkingHours = { id: string; weekday: number; start_time: string; end_time: string };
+const contactFields: { key: string; label: string; multiline?: boolean; keyboard?: 'phone-pad' | 'email-address' }[] = [
+  { key: 'about', label: 'About the business', multiline: true },
+  { key: 'phone', label: 'Phone', keyboard: 'phone-pad' },
+  { key: 'whatsapp', label: 'WhatsApp number', keyboard: 'phone-pad' },
+  { key: 'email', label: 'Email', keyboard: 'email-address' },
+  { key: 'instagram', label: 'Instagram name' },
+  { key: 'facebook', label: 'Facebook page' },
+  { key: 'service_area', label: 'Areas you cover', multiline: true },
+  { key: 'hours_note', label: 'Opening hours note', multiline: true },
+];
 const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export default function Settings() {
@@ -14,13 +24,20 @@ export default function Settings() {
   const [hours, setHours] = useState<WorkingHours[]>([]);
   const [drafts, setDrafts] = useState<Record<string, { price: string; maxDogs: string }>>({});
   const [offFrom, setOffFrom] = useState('');
+  const [contact, setContact] = useState<Record<string, string>>({});
+  const [savingContact, setSavingContact] = useState(false);
   const [offTo, setOffTo] = useState('');
 
   const load = useCallback(async () => {
-    const [{ data: s }, { data: h }] = await Promise.all([
+    const [{ data: s }, { data: h }, { data: b }] = await Promise.all([
       supabase.from('services').select('*').order('kind').order('duration_min'),
       supabase.from('working_hours').select('*').order('weekday'),
+      supabase.from('business_info').select('*').eq('id', 1).single(),
     ]);
+    if (b) {
+      const info = b as Record<string, unknown>;
+      setContact(Object.fromEntries(contactFields.map((f) => [f.key, String(info[f.key] ?? '')])));
+    }
     const list = (s as Service[]) ?? [];
     setServices(list);
     setHours((h as WorkingHours[]) ?? []);
@@ -47,6 +64,15 @@ export default function Settings() {
       notify('Use the format 08:00-18:00, or leave blank for a day off');
     }
     load();
+  }
+
+  async function saveContact() {
+    setSavingContact(true);
+    const patch = Object.fromEntries(contactFields.map((f) => [f.key, contact[f.key]?.trim() || null]));
+    const { error } = await supabase.from('business_info').update(patch).eq('id', 1);
+    setSavingContact(false);
+    if (error) notify('Could not save', error.message);
+    else notify('Contact details saved', 'Customers see them on the Contact page.');
   }
 
   async function addTimeOff() {
@@ -114,6 +140,14 @@ export default function Settings() {
       <Field label="From (YYYY-MM-DD)" value={offFrom} onChangeText={setOffFrom} />
       <Field label="To (YYYY-MM-DD, optional)" value={offTo} onChangeText={setOffTo} />
       <Button title="Block these days" onPress={addTimeOff} disabled={!offFrom} />
+
+      <SectionTitle>Contact page</SectionTitle>
+      <Text style={[text.muted, { marginBottom: 8 }]}>What customers see when they tap Contact. Leave a box empty to hide it.</Text>
+      {contactFields.map((f) => (
+        <Field key={f.key} label={f.label} value={contact[f.key] ?? ''} onChangeText={(v) => setContact({ ...contact, [f.key]: v })}
+          multiline={f.multiline} keyboardType={f.keyboard} autoCapitalize={f.keyboard ? 'none' : undefined} />
+      ))}
+      <Button title="Save contact details" onPress={saveContact} loading={savingContact} />
 
       <SectionTitle>Account</SectionTitle>
       <Button variant="secondary" title="Sign out" onPress={async () => { await supabase.auth.signOut(); router.replace('/sign-in'); }} />

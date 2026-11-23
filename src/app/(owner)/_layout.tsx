@@ -10,6 +10,7 @@ export default function OwnerLayout() {
     <Tabs screenOptions={tabScreenOptions}>
       <Tabs.Screen name="index" options={{ title: 'Requests', tabBarLabel: tabLabel('Requests'), tabBarIcon: tabIcon('mail-unread-outline') }} />
       <Tabs.Screen name="schedule" options={{ title: 'Schedule', tabBarLabel: tabLabel('Schedule'), tabBarIcon: tabIcon('calendar-outline') }} />
+      <Tabs.Screen name="updates" options={{ title: 'Walk updates', tabBarLabel: tabLabel('Post'), tabBarIcon: tabIcon('camera-outline') }} />
       <Tabs.Screen name="customers" options={{ title: 'Customers', tabBarLabel: tabLabel('Customers'), tabBarIcon: tabIcon('people-outline') }} />
       <Tabs.Screen name="settings" options={{ title: 'Settings', tabBarLabel: tabLabel('Settings'), tabBarIcon: tabIcon('settings-outline') }} />
     </Tabs>

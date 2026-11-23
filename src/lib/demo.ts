@@ -97,7 +97,33 @@ function seed() {
     mk('b4', DEMO_CUSTOMER_ID, 's6', at(w2, '12:00'), 'requested', 'invoice', ['d1'], 'Please top up water bowl'),
     mk('b5', 'c2', 's1', at(w3, '09:00'), 'approved', 'card', ['d3']),
   ];
+  const ago = (h: number) => new Date(Date.now() - h * HOUR).toISOString();
+  const posts = [
+    { id: 'p1', author_id: DEMO_OWNER_ID, caption: 'Biscuit and Luna had a brilliant run on Southsea Common this morning. Both came back muddy and very happy!', photo_url: null, created_at: ago(2) },
+    { id: 'p2', author_id: DEMO_OWNER_ID, caption: 'Murphy found the biggest stick on Eastney beach and refused to leave it behind.', photo_url: null, created_at: ago(5) },
+    { id: 'p3', author_id: DEMO_OWNER_ID, caption: 'Quiet sit-in with Biscuit today. Fed, watered, and lots of fuss. Settled on the sofa when I left.', photo_url: null, created_at: ago(26) },
+  ];
+  const post_dogs = [
+    { post_id: 'p1', dog_id: 'd1' }, { post_id: 'p1', dog_id: 'd2' },
+    { post_id: 'p2', dog_id: 'd3' },
+    { post_id: 'p3', dog_id: 'd1' },
+  ];
+  const business_info = [{
+    id: 1,
+    name: 'Portsmouth Paws',
+    about: 'Friendly, reliable dog walking and pet sitting across Portsmouth. Fully insured and DBS checked. (Demo: these contact details are placeholders.)',
+    phone: '07700 900000',
+    email: 'hello@portsmouthpaws.example',
+    whatsapp: '07700 900000',
+    instagram: 'portsmouthpaws',
+    facebook: 'Portsmouth Paws',
+    service_area: 'Southsea, Fratton, Milton, Eastney and North End',
+    hours_note: 'Walks Monday to Friday, 8am to 6pm. Messages answered within a few hours.',
+  }];
   return {
+    posts,
+    post_dogs,
+    business_info,
     services,
     profiles,
     dogs,
@@ -150,8 +176,17 @@ function withJoins(table: string, row: Row): Row {
       ...row,
       services: svc && { name: svc.name, kind: svc.kind },
       booking_dogs: db.booking_dogs.filter((bd) => bd.booking_id === row.id)
-        .map((bd) => ({ dogs: { name: db.dogs.find((d) => d.id === bd.dog_id)?.name ?? '' } })),
+        .map((bd) => ({ dog_id: bd.dog_id, dogs: { name: db.dogs.find((d) => d.id === bd.dog_id)?.name ?? '' } })),
       profiles: p && { full_name: p.full_name, phone: p.phone, address: p.address, postcode: p.postcode },
+    };
+  }
+  if (table === 'posts') {
+    return {
+      ...row,
+      post_dogs: db.post_dogs.filter((pd) => pd.post_id === row.id).map((pd) => {
+        const dog = db.dogs.find((d) => d.id === pd.dog_id);
+        return { dog_id: pd.dog_id, dogs: { name: dog?.name ?? '', photo_url: dog?.photo_url ?? null } };
+      }),
     };
   }
   if (table === 'profiles') {
@@ -182,6 +217,7 @@ class Query implements PromiseLike<{ data: any; error: any }> {
   single() { this.one = true; return this; }
   update(values: Row) { this.op = 'update'; this.payload = values; return this; }
   insert(values: Row | Row[]) { this.op = 'insert'; this.payload = values; return this; }
+  // After insert, .select().single() returns the new row (used to get a post's id).
   delete() { this.op = 'delete'; return this; }
 
   private run(): { data: any; error: any } {
@@ -189,8 +225,9 @@ class Query implements PromiseLike<{ data: any; error: any }> {
     const match = (r: Row) => this.filters.every((f) => f(r));
     if (this.op === 'insert') {
       const list = Array.isArray(this.payload) ? this.payload : [this.payload];
-      for (const v of list) rows.push({ id: uid(), ...v });
-      return { data: null, error: null };
+      const created = list.map((v: Row) => ({ id: uid(), created_at: new Date().toISOString(), ...v }));
+      rows.push(...created);
+      return { data: this.one ? created[0] : created, error: null };
     }
     if (this.op === 'update') {
       rows.filter(match).forEach((r) => Object.assign(r, this.payload));

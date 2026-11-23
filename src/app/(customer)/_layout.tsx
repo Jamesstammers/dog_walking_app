@@ -9,8 +9,9 @@ export default function CustomerLayout() {
     <Tabs screenOptions={tabScreenOptions}>
       <Tabs.Screen name="index" options={{ title: 'My bookings', tabBarLabel: tabLabel('My bookings'), tabBarIcon: tabIcon('calendar-outline') }} />
       <Tabs.Screen name="book" options={{ title: 'Book', tabBarLabel: tabLabel('Book'), tabBarIcon: tabIcon('add-circle-outline') }} />
+      <Tabs.Screen name="updates" options={{ title: 'Walk updates', tabBarLabel: tabLabel('Updates'), tabBarIcon: tabIcon('images-outline') }} />
       <Tabs.Screen name="dogs" options={{ title: 'My dogs', tabBarLabel: tabLabel('My dogs'), tabBarIcon: tabIcon('paw-outline') }} />
-      <Tabs.Screen name="account" options={{ title: 'Account', tabBarLabel: tabLabel('Account'), tabBarIcon: tabIcon('person-outline') }} />
+      <Tabs.Screen name="contact" options={{ title: 'Contact us', tabBarLabel: tabLabel('Contact'), tabBarIcon: tabIcon('chatbubble-ellipses-outline') }} />
     </Tabs>
   );
 }

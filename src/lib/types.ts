@@ -23,6 +23,7 @@ export type Dog = {
   vaccinations_up_to_date: boolean;
   good_with_other_dogs: boolean;
   notes: string | null;
+  photo_url: string | null;
 };
 
 export type Service = {
@@ -49,4 +50,26 @@ export type Booking = {
   batch_id: string | null;
   services?: Pick<Service, 'name' | 'kind'>;
   booking_dogs?: { dogs: Pick<Dog, 'name'> }[];
+};
+
+export type Post = {
+  id: string;
+  author_id: string;
+  caption: string;
+  photo_url: string | null;
+  created_at: string;
+  post_dogs?: { dog_id: string; dogs: Pick<Dog, 'name' | 'photo_url'> }[];
+};
+
+export type BusinessInfo = {
+  id: number;
+  name: string;
+  about: string;
+  phone: string | null;
+  email: string | null;
+  whatsapp: string | null;
+  instagram: string | null;
+  facebook: string | null;
+  service_area: string | null;
+  hours_note: string | null;
 };

@@ -32,7 +32,14 @@
           "asyncRoutes": false
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Portsmouth Paws uses your photos so you can add a picture of your dog.",
+          "cameraPermission": "Portsmouth Paws uses the camera so you can take a picture of your dog."
+        }
+      ]
     ],
     "scheme": "portsmouthpaws",
     "splash": {

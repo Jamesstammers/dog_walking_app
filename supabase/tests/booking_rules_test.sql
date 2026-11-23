@@ -81,3 +81,25 @@ insert into time_off (starts_at, ends_at) select mon10 - interval '10 hours', mo
 select assert(not slot_available((select id from svc where kind='solo_walk' and duration_min=30), (select mon10 from t), 1),
   'time off blocks bookings');
 \echo ALL TESTS PASSED
+
+-- Walk updates: customers only see posts that tag their own dogs.
+set test.uid = '';
+insert into dogs (id, owner_id, name) values ('10000000-0000-0000-0000-000000000009', '00000000-0000-0000-0000-000000000003', 'Pip');
+insert into posts (id, author_id, caption) values
+  ('30000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'Rex at the beach'),
+  ('30000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'Pip in the park');
+insert into post_dogs values
+  ('30000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001'),
+  ('30000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000009');
+create role app_user;
+grant usage on schema public, auth to app_user;
+grant select on all tables in schema public to app_user;
+grant execute on all functions in schema public, auth to app_user;
+set role app_user;
+set test.uid = '00000000-0000-0000-0000-000000000002';
+select assert((select array_agg(caption) from posts) = array['Rex at the beach'], 'customer A sees only posts about their dogs');
+set test.uid = '00000000-0000-0000-0000-000000000001';
+select assert((select count(*) from posts) = 2, 'owner sees every post');
+select assert((select name from business_info) = 'Portsmouth Paws', 'anyone can read contact details');
+reset role;
+\echo ALL TESTS PASSED (including walk updates)
