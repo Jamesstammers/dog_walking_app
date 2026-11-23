@@ -21,3 +21,17 @@ psql -v ON_ERROR_STOP=1 -f supabase/tests/stub_supabase.sql \
   -f supabase/migrations/20261123000000_init.sql \
   -f supabase/tests/booking_rules_test.sql
 ```
+
+## Setting up
+1. Create a Supabase project (EU region) and run `supabase/migrations/20261123000000_init.sql` in its SQL editor.
+2. Copy `.env.example` to `.env` and fill in the project URL and anon key.
+3. `npm install`, then `npx expo start` and open the app in Expo Go on a phone.
+4. Sign up in the app as the business owner, then in Supabase's table editor set that row in `profiles` to `role = owner` and `approved = true`.
+
+## Screens
+- Customer: sign in, my bookings (with cancel), book, my dogs, account.
+- Owner: requests (approve or decline), schedule by day, customers (meet and greet approval, invoice permission), settings (prices, dog limits, working hours, time off).
+
+## Not built yet
+- Stripe: saving the card on request, charging it on approval, and invoices for pay-later customers.
+- Push and email notifications for new requests and decisions.
