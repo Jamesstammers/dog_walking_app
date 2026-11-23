@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "dog-walking-app",
+    "name": "Dog Walking",
     "slug": "dog-walking-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -20,6 +20,10 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "scheme": "dogwalking"
   }
 }
