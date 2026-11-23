@@ -1,7 +1,8 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, ScrollView, Switch, Text, View } from 'react-native';
+import { ScrollView, Switch, Text, View } from 'react-native';
 import { Button, Card, colors, Field, SectionTitle, text } from '../../components/ui';
+import { notify } from '../../lib/dialog';
 import { supabase } from '../../lib/supabase';
 import type { Service } from '../../lib/types';
 
@@ -30,7 +31,7 @@ export default function Settings() {
 
   async function saveService(s: Service, patch: Partial<Service>) {
     const { error } = await supabase.from('services').update(patch).eq('id', s.id);
-    if (error) Alert.alert('Could not save', error.message);
+    if (error) notify('Could not save', error.message);
     load();
   }
 
@@ -41,9 +42,9 @@ export default function Settings() {
     const match = value.trim().match(/^(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})$/);
     if (match) {
       const { error } = await supabase.from('working_hours').insert({ weekday, start_time: match[1], end_time: match[2] });
-      if (error) Alert.alert('Could not save hours', error.message);
+      if (error) notify('Could not save hours', error.message);
     } else if (value.trim()) {
-      Alert.alert('Use the format 08:00-18:00, or leave blank for a day off');
+      notify('Use the format 08:00-18:00, or leave blank for a day off');
     }
     load();
   }
@@ -53,13 +54,13 @@ export default function Settings() {
     const starts = new Date(`${offFrom}T00:00:00`);
     const ends = new Date(`${offTo || offFrom}T23:59:59`);
     if (isNaN(starts.getTime()) || isNaN(ends.getTime())) {
-      Alert.alert('Use dates like 2026-12-24');
+      notify('Use dates like 2026-12-24');
       return;
     }
     const { error } = await supabase.from('time_off').insert({ starts_at: starts.toISOString(), ends_at: ends.toISOString(), reason: 'Time off' });
-    if (error) Alert.alert('Could not save', error.message);
+    if (error) notify('Could not save', error.message);
     else {
-      Alert.alert('Time off added');
+      notify('Time off added');
       setOffFrom('');
       setOffTo('');
     }

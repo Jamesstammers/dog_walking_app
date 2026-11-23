@@ -1,7 +1,7 @@
 import { Text, View } from 'react-native';
 import { formatDateTime, formatPrice, statusLabels } from '../lib/format';
 import type { Booking } from '../lib/types';
-import { Card, colors, text } from './ui';
+import { Card, colors, fonts, text } from './ui';
 
 export type OwnerBooking = Booking & {
   profiles?: { full_name: string; phone: string | null; address: string | null; postcode: string | null };
@@ -13,7 +13,7 @@ export function BookingCard({ booking, children }: { booking: OwnerBooking; chil
     <Card>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
         <Text style={text.title}>{booking.services?.name}</Text>
-        <Text style={{ fontSize: 13, fontWeight: '600', color: booking.status === 'approved' ? colors.primary : colors.muted }}>
+        <Text style={{ fontSize: 13, fontFamily: fonts.bold, color: booking.status === 'approved' ? colors.primary : colors.muted }}>
           {statusLabels[booking.status]}
         </Text>
       </View>

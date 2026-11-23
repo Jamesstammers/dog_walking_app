@@ -1,9 +1,10 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text } from 'react-native';
+import { Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Button, colors, Field, text } from '../components/ui';
-import { supabase } from '../lib/supabase';
+import { Button, colors, Field, fonts, text } from '../components/ui';
+import { demoSignIn } from '../lib/demo';
+import { isDemo, supabase } from '../lib/supabase';
 
 export default function SignIn() {
   const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in');
@@ -34,8 +35,19 @@ export default function SignIn() {
     <SafeAreaView style={styles.screen}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <Image source={require('../../assets/brand/logo.png')} style={styles.logo} accessibilityLabel="Portsmouth Paws" />
+          {isDemo && (
+            <View style={styles.demo}>
+              <Text style={text.title}>Demo version</Text>
+              <Text style={[text.muted, { marginBottom: 8 }]}>
+                Sample customers, dogs and bookings. Nothing is saved, and no payments are taken.
+              </Text>
+              <Button title="Try it as a customer" onPress={() => { demoSignIn('customer'); router.replace('/'); }} />
+              <Button variant="secondary" title="Try it as the business owner" onPress={() => { demoSignIn('owner'); router.replace('/'); }} />
+            </View>
+          )}
           <Text style={styles.heading}>{mode === 'sign-in' ? 'Welcome back' : 'Create an account'}</Text>
-          <Text style={[text.muted, { marginBottom: 24 }]}>Book walks and sit-ins for your dog.</Text>
+          <Text style={[text.muted, { marginBottom: 24 }]}>Book walks and sit-ins with Portsmouth Paws.</Text>
           {mode === 'sign-up' && <Field label="Your name" value={name} onChangeText={setName} autoComplete="name" />}
           <Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" autoComplete="email" />
           <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry autoComplete="password" />
@@ -54,6 +66,8 @@ export default function SignIn() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  content: { padding: 24, paddingTop: 48 },
-  heading: { fontSize: 28, fontWeight: '700', color: colors.text, marginBottom: 6 },
+  content: { padding: 24, paddingTop: 24, maxWidth: 480, width: '100%', alignSelf: 'center' },
+  logo: { width: 160, height: 160, alignSelf: 'center', marginBottom: 20 },
+  demo: { backgroundColor: colors.primaryLight, borderRadius: 12, padding: 16, marginBottom: 28 },
+  heading: { fontSize: 34, fontFamily: fonts.display, color: colors.text, marginBottom: 2 },
 });

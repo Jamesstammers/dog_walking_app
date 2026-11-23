@@ -1,9 +1,10 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Button, Card, Chip, colors, Field, SectionTitle, text } from '../../components/ui';
 import { useAuth } from '../../lib/auth';
 import { formatDay, formatPrice, formatTime, londonDateKey, upcomingDays } from '../../lib/format';
+import { notify } from '../../lib/dialog';
 import { supabase } from '../../lib/supabase';
 import type { Dog, PaymentMethod, Service, ServiceKind } from '../../lib/types';
 
@@ -78,11 +79,11 @@ export default function Book() {
     });
     setSubmitting(false);
     if (error) {
-      Alert.alert('Booking not sent', error.message);
+      notify('Booking not sent', error.message);
       return;
     }
     // TODO(stripe): for card payments, collect and save the card here before confirming.
-    Alert.alert('Request sent', "We'll confirm your booking shortly.");
+    notify('Request sent', "We'll confirm your booking shortly.");
     setKind(null);
     setDogIds([]);
     setNotes('');

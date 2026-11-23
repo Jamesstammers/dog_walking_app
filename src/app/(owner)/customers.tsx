@@ -1,7 +1,8 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, FlatList, Switch, Text, View } from 'react-native';
+import { FlatList, Switch, Text, View } from 'react-native';
 import { Card, colors, text } from '../../components/ui';
+import { notify } from '../../lib/dialog';
 import { supabase } from '../../lib/supabase';
 import type { Dog, Profile } from '../../lib/types';
 
@@ -24,7 +25,7 @@ export default function Customers() {
 
   async function update(id: string, patch: Partial<Profile>) {
     const { error } = await supabase.from('profiles').update(patch).eq('id', id);
-    if (error) Alert.alert('Could not update', error.message);
+    if (error) notify('Could not update', error.message);
     load();
   }
 

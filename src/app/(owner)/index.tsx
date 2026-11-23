@@ -1,8 +1,9 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, FlatList, RefreshControl, Text, View } from 'react-native';
+import { FlatList, RefreshControl, Text, View } from 'react-native';
 import { BookingCard, ownerBookingSelect, type OwnerBooking } from '../../components/BookingCard';
 import { Button, colors, text } from '../../components/ui';
+import { notify } from '../../lib/dialog';
 import { supabase } from '../../lib/supabase';
 
 export default function Requests() {
@@ -33,7 +34,7 @@ export default function Requests() {
       .eq('id', booking.id)
       .eq('status', 'requested');
     setBusyId(null);
-    if (error) Alert.alert('Could not update', error.message);
+    if (error) notify('Could not update', error.message);
     load();
   }
 

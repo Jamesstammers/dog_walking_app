@@ -1,8 +1,9 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, ScrollView } from 'react-native';
+import { ScrollView } from 'react-native';
 import { Button, colors, Field } from '../../components/ui';
 import { useAuth } from '../../lib/auth';
+import { notify } from '../../lib/dialog';
 import { supabase } from '../../lib/supabase';
 
 export default function Account() {
@@ -21,10 +22,10 @@ export default function Account() {
     setSaving(true);
     const { error } = await supabase.from('profiles').update(form).eq('id', profile.id);
     setSaving(false);
-    if (error) Alert.alert('Could not save', error.message);
+    if (error) notify('Could not save', error.message);
     else {
       await refreshProfile();
-      Alert.alert('Saved');
+      notify('Saved');
     }
   }
 

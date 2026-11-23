@@ -35,3 +35,8 @@ psql -v ON_ERROR_STOP=1 -f supabase/tests/stub_supabase.sql \
 ## Not built yet
 - Stripe: saving the card on request, charging it on approval, and invoices for pay-later customers.
 - Push and email notifications for new requests and decisions.
+
+## Demo mode
+With no Supabase URL set (or `EXPO_PUBLIC_DEMO=1`), the app runs on sample data from `src/lib/demo.ts`, with buttons to try it as a customer or as the owner. Nothing is saved and no payments are taken.
+- On a phone: `npx expo start`, then scan the QR code with the Expo Go app.
+- As a website: `./scripts/build-demo-web.sh` builds a static site in `dist-demo/`.

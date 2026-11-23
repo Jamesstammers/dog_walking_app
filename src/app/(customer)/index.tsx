@@ -1,9 +1,10 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import { Button, Card, colors, text } from '../../components/ui';
+import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Button, Card, colors, fonts, text } from '../../components/ui';
 import { useAuth } from '../../lib/auth';
 import { formatDateTime, formatPrice, statusLabels } from '../../lib/format';
+import { notify, confirmAction } from '../../lib/dialog';
 import { supabase } from '../../lib/supabase';
 import type { Booking } from '../../lib/types';
 
@@ -28,18 +29,12 @@ export default function MyBookings() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   function cancel(booking: Booking) {
-    Alert.alert('Cancel this booking?', formatDateTime(booking.starts_at), [
-      { text: 'Keep it', style: 'cancel' },
-      {
-        text: 'Cancel booking',
-        style: 'destructive',
-        onPress: async () => {
-          const { error } = await supabase.rpc('cancel_booking', { p_booking_id: booking.id });
-          if (error) Alert.alert('Could not cancel', error.message);
-          load();
-        },
-      },
-    ]);
+    confirmAction('Cancel this booking?', formatDateTime(booking.starts_at), 'Cancel booking', async () => {
+      const { error } = await supabase.rpc('cancel_booking', { p_booking_id: booking.id });
+      if (error) notify('Could not cancel', error.message);
+      else notify('Booking cancelled');
+      load();
+    });
   }
 
   const now = Date.now();
@@ -85,5 +80,5 @@ export default function MyBookings() {
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  status: { fontSize: 13, fontWeight: '600', color: colors.muted },
+  status: { fontSize: 13, fontFamily: fonts.bold, color: colors.muted },
 });
