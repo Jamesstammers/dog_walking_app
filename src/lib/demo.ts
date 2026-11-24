@@ -76,6 +76,15 @@ function seed() {
     mk('b3c', 'c2', 's2', addDaysKey(w1, 14), 'afternoon', 'requested', 'card', ['d3'], 'Around 2pm if possible. Back gate code is 1234', 'batch-tom'),
     mk('b4', DEMO_CUSTOMER_ID, 's6', w2, 'any', 'requested', 'invoice', ['d1'], 'Please top up water bowl'),
     mk('b5', 'c2', 's1', w3, 'evening', 'approved', 'card', ['d3']),
+    // Other customers' walks, so some parts of the day show as full (limit is 3 per part).
+    mk('x1', 'c2', 's1', w1, 'morning', 'approved', 'card', ['d3']),
+    mk('x2', 'c2', 's5', w1, 'morning', 'approved', 'card', ['d3']),
+    mk('x3', 'c2', 's1', w2, 'afternoon', 'approved', 'card', ['d3']),
+    mk('x4', 'c2', 's5', w2, 'afternoon', 'approved', 'card', ['d3']),
+    mk('x5', 'c2', 's2', w2, 'afternoon', 'approved', 'card', ['d3']),
+    mk('x6', 'c2', 's1', w3, 'morning', 'approved', 'card', ['d3']),
+    mk('x7', 'c2', 's5', w3, 'morning', 'approved', 'card', ['d3']),
+    mk('x8', 'c2', 's6', w3, 'morning', 'approved', 'card', ['d3']),
   ];
   const ago = (h: number) => new Date(Date.now() - h * HOUR).toISOString();
   const posts = [
@@ -98,7 +107,8 @@ function seed() {
     instagram: 'portsmouthpaws',
     facebook: 'Portsmouth Paws',
     service_area: 'Southsea, Fratton, Milton, Eastney and North End',
-    hours_note: 'Walks Monday to Friday, 8am to 6pm. Messages answered within a few hours.',
+    hours_note: 'Walks Monday to Friday, 8am to 8pm. Messages answered within a few hours.',
+    max_walks_per_slot: 3,
   }];
   return {
     posts,
@@ -125,6 +135,26 @@ function isBlocked(key: string): boolean {
   const start = new Date(`${key}T00:00:00Z`).getTime() - HOUR; // generous around BST
   const end = start + 26 * HOUR;
   return db.time_off.some((t) => new Date(t.starts_at).getTime() < end && new Date(t.ends_at).getTime() > start);
+}
+
+const cap = () => db.business_info[0]?.max_walks_per_slot ?? 3;
+
+/** Walks taken in a part of a day; group walks of one service share an outing. */
+function walksInSlot(key: string, window: string): number {
+  const outings = new Set<string>();
+  for (const b of db.bookings) {
+    if (b.booking_date !== key || b.time_window !== window || !holdsTime(b.status)) continue;
+    const svc = db.services.find((x) => x.id === b.service_id);
+    outings.add(svc?.kind === 'group_walk' ? `g-${svc.id}` : b.id);
+  }
+  return outings.size;
+}
+
+function slotFree(key: string, window: string): boolean {
+  if (!dayBookable(key)) return false;
+  if (window !== 'any') return walksInSlot(key, window) < cap();
+  const dayTotal = db.bookings.filter((b) => b.booking_date === key && holdsTime(b.status)).length;
+  return dayTotal < 3 * cap() && ['morning', 'afternoon', 'evening'].some((w) => walksInSlot(key, w) < cap());
 }
 
 function dayBookable(key: string): boolean {
@@ -245,6 +275,13 @@ export const demoClient = {
       for (let k = args.p_from; k <= args.p_to; k = addDaysKey(k, 1)) if (isBlocked(k)) out.push(k);
       return { data: out, error: null };
     }
+    if (fn === 'day_availability') {
+      const out: Row[] = [];
+      for (let k = args.p_from; k <= args.p_to; k = addDaysKey(k, 1)) {
+        out.push({ day: k, bookable: dayBookable(k), morning: slotFree(k, 'morning'), afternoon: slotFree(k, 'afternoon'), evening: slotFree(k, 'evening') });
+      }
+      return { data: out, error: null };
+    }
     if (fn === 'request_booking') {
       const fail = (message: string) => ({ data: null, error: { message } });
       if (!me) return fail('Not signed in');
@@ -254,6 +291,9 @@ export const demoClient = {
       if (!args.p_dog_ids?.length) return fail('Choose at least one dog');
       if (args.p_dog_ids.length > svc.max_dogs) return fail(`Up to ${svc.max_dogs} dogs per booking for this service`);
       if (!dayBookable(args.p_date)) return fail(`${args.p_date} is not available to book`);
+      const joiningGroup = svc.kind === 'group_walk' && args.p_time_window !== 'any' && db.bookings.some((b) =>
+        holdsTime(b.status) && b.service_id === svc.id && b.booking_date === args.p_date && b.time_window === args.p_time_window);
+      if (!slotFree(args.p_date, args.p_time_window) && !joiningGroup) return fail(`${args.p_time_window} is fully booked on ${args.p_date}`);
       const clash = db.bookings.some((b) => holdsTime(b.status) && b.service_id === svc.id && b.booking_date === args.p_date
         && b.time_window === args.p_time_window
         && db.booking_dogs.some((bd) => bd.booking_id === b.id && args.p_dog_ids.includes(bd.dog_id)));

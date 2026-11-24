@@ -30,22 +30,3 @@ create policy "owner manages post tags" on post_dogs for all using (is_owner()) 
 create policy "customers see tags on their dogs" on post_dogs for select using (
   exists (select 1 from dogs d where d.id = dog_id and d.owner_id = auth.uid())
 );
-
--- Contact details shown on the customer Contact page. One row, edited in Settings.
-create table business_info (
-  id          int primary key default 1 check (id = 1),
-  name        text not null default 'Portsmouth Paws',
-  about       text not null default '',
-  phone       text,
-  email       text,
-  whatsapp    text,
-  instagram   text,
-  facebook    text,
-  service_area text,
-  hours_note  text
-);
-insert into business_info (id) values (1);
-
-alter table business_info enable row level security;
-create policy "anyone reads contact details" on business_info for select using (true);
-create policy "owner edits contact details" on business_info for update using (is_owner()) with check (is_owner());

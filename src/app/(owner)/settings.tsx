@@ -27,6 +27,7 @@ export default function Settings() {
   const [contact, setContact] = useState<Record<string, string>>({});
   const [savingContact, setSavingContact] = useState(false);
   const [offTo, setOffTo] = useState('');
+  const [perSlot, setPerSlot] = useState('3');
 
   const load = useCallback(async () => {
     const [{ data: s }, { data: h }, { data: b }] = await Promise.all([
@@ -36,6 +37,7 @@ export default function Settings() {
     ]);
     if (b) {
       const info = b as Record<string, unknown>;
+      setPerSlot(String(info.max_walks_per_slot ?? 3));
       setContact(Object.fromEntries(contactFields.map((f) => [f.key, String(info[f.key] ?? '')])));
     }
     const list = (s as Service[]) ?? [];
@@ -64,6 +66,17 @@ export default function Settings() {
       notify('Use the format 08:00-18:00, or leave blank for a day off');
     }
     load();
+  }
+
+  async function saveCapacity() {
+    const n = parseInt(perSlot, 10);
+    if (!(n >= 1 && n <= 20)) {
+      notify('Check the number', 'Choose between 1 and 20.');
+      return;
+    }
+    const { error } = await supabase.from('business_info').update({ max_walks_per_slot: n }).eq('id', 1);
+    if (error) notify('Could not save', error.message);
+    else notify('Saved', `Customers see a part of the day as full once ${n} ${n === 1 ? 'visit is' : 'visits are'} booked or requested.`);
   }
 
   async function saveContact() {
@@ -135,6 +148,13 @@ export default function Settings() {
           />
         );
       })}
+
+      <SectionTitle>Availability</SectionTitle>
+      <Text style={[text.muted, { marginBottom: 8 }]}>
+        Most visits you'll take in each part of the day (morning, afternoon, evening). Group walks of the same type count as one.
+      </Text>
+      <Field label="Visits per part of the day" value={perSlot} onChangeText={setPerSlot} keyboardType="number-pad" />
+      <Button title="Save availability" variant="secondary" onPress={saveCapacity} />
 
       <SectionTitle>Time off</SectionTitle>
       <Field label="From (YYYY-MM-DD)" value={offFrom} onChangeText={setOffFrom} />

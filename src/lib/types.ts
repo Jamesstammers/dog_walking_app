@@ -73,4 +73,5 @@ export type BusinessInfo = {
   facebook: string | null;
   service_area: string | null;
   hours_note: string | null;
+  max_walks_per_slot: number;
 };

@@ -24,9 +24,11 @@ type Props = {
   repeated?: string[];
   isDisabled: (key: string) => boolean;
   onToggle: (key: string) => void;
+  /** Free (true) or full (false) for morning, afternoon and evening, shown as three dots. */
+  availability?: Record<string, [boolean, boolean, boolean]>;
 };
 
-export function Calendar({ today, maxDate, selected, repeated = [], isDisabled, onToggle }: Props) {
+export function Calendar({ today, maxDate, selected, repeated = [], isDisabled, onToggle, availability }: Props) {
   const [month, setMonth] = useState(today.slice(0, 7)); // YYYY-MM
 
   const cells = useMemo(() => {
@@ -80,11 +82,27 @@ export function Calendar({ today, maxDate, selected, repeated = [], isDisabled, 
                 <Text style={[styles.dayText, disabled && styles.dayTextDisabled, isSelected && styles.dayTextSelected]}>
                   {parseInt(key.slice(8), 10)}
                 </Text>
+                {availability && !disabled && availability[key] && (
+                  <View style={styles.dots}>
+                    {availability[key].map((free, j) => (
+                      <View key={j} style={[styles.dot, { backgroundColor: free ? (isSelected ? '#fff' : colors.free) : (isSelected ? 'rgba(255,255,255,0.35)' : colors.full) }]} />
+                    ))}
+                  </View>
+                )}
               </Pressable>
             </View>
           );
         })}
       </View>
+      {availability && (
+        <View style={styles.legend}>
+          <View style={[styles.dot, { backgroundColor: colors.free }]} />
+          <Text style={styles.legendText}>Free</Text>
+          <View style={[styles.dot, { backgroundColor: colors.full, marginLeft: 12 }]} />
+          <Text style={styles.legendText}>Full</Text>
+          <Text style={[styles.legendText, { marginLeft: 12 }]}>Dots: morning, afternoon, evening</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -105,4 +123,8 @@ const styles = StyleSheet.create({
   dayText: { fontFamily: fonts.medium, fontSize: 15, color: colors.text },
   dayTextDisabled: { color: '#C4B9C1' },
   dayTextSelected: { color: '#fff' },
+  dots: { flexDirection: 'row', gap: 2, marginTop: 1 },
+  dot: { width: 5, height: 5, borderRadius: 3 },
+  legend: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginTop: 8, paddingHorizontal: 4 },
+  legendText: { fontFamily: fonts.regular, fontSize: 12, color: colors.muted },
 });

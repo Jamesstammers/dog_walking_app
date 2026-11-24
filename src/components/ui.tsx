@@ -14,6 +14,8 @@ export const colors = {
   background: '#FBF6F2', // cream
   card: '#FFFFFF',
   danger: '#C0362C',
+  free: '#2E9D5B', // availability: free
+  full: '#D9CED6', // availability: full
 };
 
 export const fonts = {

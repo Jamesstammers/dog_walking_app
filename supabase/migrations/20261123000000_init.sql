@@ -124,12 +124,38 @@ create table booking_dogs (
 );
 
 -- ---------------------------------------------------------------------------
+-- Business details and settings
+-- ---------------------------------------------------------------------------
+-- Contact details shown on the customer Contact page. One row, edited in Settings.
+create table business_info (
+  id          int primary key default 1 check (id = 1),
+  name        text not null default 'Portsmouth Paws',
+  about       text not null default '',
+  phone       text,
+  email       text,
+  whatsapp    text,
+  instagram   text,
+  facebook    text,
+  service_area text,
+  hours_note  text,
+  -- Most walks she'll take in one part of the day (morning, afternoon or evening).
+  -- Group walks of the same type in the same part of the day count as one walk.
+  max_walks_per_slot int not null default 3 check (max_walks_per_slot between 1 and 20)
+);
+insert into business_info (id) values (1);
+
+alter table business_info enable row level security;
+create policy "anyone reads contact details" on business_info for select using (true);
+
+-- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
 create or replace function is_owner() returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from profiles where id = auth.uid() and role = 'owner');
 $$;
+
+create policy "owner edits contact details" on business_info for update using (is_owner()) with check (is_owner());
 
 -- Today's date in London.
 create or replace function london_today() returns date
@@ -159,8 +185,43 @@ language sql stable security definer set search_path = public as $$
   );
 $$;
 
+-- Walks already taken in one part of a day. Requested and approved bookings count;
+-- group walks of the same service share one outing.
+create or replace function walks_in_slot(p_date date, p_window time_window) returns int
+language sql stable security definer set search_path = public as $$
+  select count(*)::int from (
+    select case when s.kind = 'group_walk' then s.id::text else b.id::text end
+    from bookings b join services s on s.id = b.service_id
+    where b.booking_date = p_date and b.time_window = p_window
+      and b.status in ('requested', 'approved')
+    group by 1
+  ) x;
+$$;
+
+-- Whether a part of a day can take another booking. "any" needs room somewhere in the day.
+create or replace function slot_free(p_date date, p_window time_window) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare
+  cap int := (select max_walks_per_slot from business_info where id = 1);
+begin
+  if not day_bookable(p_date) then return false; end if;
+  if p_window <> 'any' then return walks_in_slot(p_date, p_window) < cap; end if;
+  -- No preference: room somewhere in the day, and the day as a whole isn't full.
+  return (select count(*) from bookings b where b.booking_date = p_date and b.status in ('requested', 'approved')) < 3 * cap
+    and (walks_in_slot(p_date, 'morning') < cap or walks_in_slot(p_date, 'afternoon') < cap or walks_in_slot(p_date, 'evening') < cap);
+end;
+$$;
+
+-- Free or full for each part of each day in a range. Shows no booking details.
+create or replace function day_availability(p_from date, p_to date)
+returns table (day date, bookable boolean, morning boolean, afternoon boolean, evening boolean)
+language sql stable security definer set search_path = public as $$
+  select d::date, day_bookable(d::date),
+         slot_free(d::date, 'morning'), slot_free(d::date, 'afternoon'), slot_free(d::date, 'evening')
+  from generate_series(p_from, p_to, interval '1 day') d;
+$$;
+
 -- Customers create bookings through this function so the rules always apply.
--- The owner approves each request, so there's no slot-level capacity check here.
 create or replace function request_booking(
   p_service_id uuid, p_date date, p_time_window time_window, p_dog_ids uuid[],
   p_payment_method payment_method, p_notes text default null,
@@ -190,6 +251,17 @@ begin
     raise exception 'Up to % dogs per booking for this service', svc.max_dogs;
   end if;
   if not day_bookable(p_date) then raise exception '% is not available to book', to_char(p_date, 'Dy DD Mon'); end if;
+
+  -- One request at a time, so two customers can't take the last place together.
+  perform pg_advisory_xact_lock(hashtext('bookings'));
+  -- Joining a group walk that's already running in that part of the day doesn't need a new place.
+  if not slot_free(p_date, p_time_window) and not (
+    svc.kind = 'group_walk' and p_time_window <> 'any' and exists (
+      select 1 from bookings b where b.service_id = svc.id and b.booking_date = p_date
+        and b.time_window = p_time_window and b.status in ('requested', 'approved'))
+  ) then
+    raise exception '% is fully booked on %', initcap(p_time_window::text), to_char(p_date, 'Dy DD Mon');
+  end if;
 
   -- The same dog can't be booked twice for the same service, day and part of the day.
   if exists (

@@ -79,6 +79,33 @@ select assert((select array_agg(d) from blocked_dates((select mon from t), (sele
   'time off shows as a blocked date');
 select expect_error($q$ select request_booking((select id from svc where kind='solo_walk' and duration_min=30), (select mon from t) + 2, 'any',
   array['10000000-0000-0000-0000-000000000001']::uuid[], 'card') $q$, 'time off blocks bookings');
+
+-- Availability: with a limit of 2 walks per part of the day, the third solo walk is refused,
+-- but joining a group walk already running that morning is fine.
+set test.uid = '';
+update business_info set max_walks_per_slot = 2;
+insert into auth.users (id) values ('00000000-0000-0000-0000-000000000004');
+update profiles set approved = true where id = '00000000-0000-0000-0000-000000000004';
+insert into dogs (id, owner_id, name) values ('10000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000004', 'Dot');
+set test.uid = '00000000-0000-0000-0000-000000000004';
+select request_booking((select id from svc where kind='solo_walk' and duration_min=30), (select mon + 3 from t), 'morning',
+  array['10000000-0000-0000-0000-000000000004']::uuid[], 'card');
+select request_booking((select id from svc where kind='sit_in' and duration_min=30), (select mon + 3 from t), 'morning',
+  array['10000000-0000-0000-0000-000000000004']::uuid[], 'card');
+select assert((select not morning and afternoon from day_availability((select mon + 3 from t), (select mon + 3 from t))),
+  'morning shows full after 2 walks, afternoon still free');
+select expect_error($q$ select request_booking((select id from svc where kind='solo_walk' and duration_min=60), (select mon + 3 from t), 'morning',
+  array['10000000-0000-0000-0000-000000000004']::uuid[], 'card') $q$, 'full part of the day refuses another walk');
+set test.uid = '00000000-0000-0000-0000-000000000002';
+select request_booking((select id from svc where kind='group_walk' and duration_min=60), (select mon + 3 from t), 'afternoon',
+  array['10000000-0000-0000-0000-000000000001']::uuid[], 'card');
+select request_booking((select id from svc where kind='solo_walk' and duration_min=60), (select mon + 3 from t), 'afternoon',
+  array['10000000-0000-0000-0000-000000000001']::uuid[], 'card');
+set test.uid = '00000000-0000-0000-0000-000000000004';
+select assert(request_booking((select id from svc where kind='group_walk' and duration_min=60), (select mon + 3 from t), 'afternoon',
+  array['10000000-0000-0000-0000-000000000004']::uuid[], 'card') is not null, 'joining an existing group walk still works when the slot is full');
+select assert((select not bookable and not morning from day_availability((select mon + 2 from t), (select mon + 2 from t))),
+  'time off day shows as not bookable');
 \echo BOOKING TESTS PASSED
 
 -- Walk updates: customers only see posts that tag their own dogs.
