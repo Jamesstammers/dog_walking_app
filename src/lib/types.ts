@@ -1,6 +1,7 @@
 export type ServiceKind = 'solo_walk' | 'group_walk' | 'sit_in';
 export type BookingStatus = 'requested' | 'approved' | 'declined' | 'cancelled' | 'completed';
 export type PaymentMethod = 'card' | 'invoice';
+export type TimeWindow = 'morning' | 'afternoon' | 'evening' | 'any';
 export type PaymentStatus = 'unpaid' | 'card_saved' | 'paid' | 'invoiced' | 'refunded' | 'failed';
 
 export type Profile = {
@@ -40,8 +41,8 @@ export type Booking = {
   id: string;
   customer_id: string;
   service_id: string;
-  starts_at: string;
-  ends_at: string;
+  booking_date: string; // YYYY-MM-DD, London
+  time_window: TimeWindow;
   status: BookingStatus;
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;

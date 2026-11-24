@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { StyleSheet, Text, View } from 'react-native';
-import { formatDateTime, formatPrice, statusLabels } from '../lib/format';
+import { formatBookingWhen, formatPrice, statusLabels } from '../lib/format';
 import type { Booking, ServiceKind } from '../lib/types';
 import { Card, colors, fonts, text } from './ui';
 
@@ -40,7 +40,7 @@ export function BookingCard({
           </Text>
         </View>
       </View>
-      {!block && <Text style={text.body}>{formatDateTime(booking.starts_at)}</Text>}
+      {!block && <Text style={text.body}>{formatBookingWhen(booking)}</Text>}
       <Text style={text.body}>{booking.profiles?.full_name} · {dogs}</Text>
       {booking.profiles?.address ? <Text style={text.muted}>{booking.profiles.address} {booking.profiles.postcode}</Text> : null}
       <Text style={text.muted}>

@@ -4,7 +4,7 @@ import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { ServiceBadge } from '../../components/BookingCard';
 import { Button, Card, colors, fonts, text } from '../../components/ui';
 import { useAuth } from '../../lib/auth';
-import { formatDateTime, formatPrice, statusLabels } from '../../lib/format';
+import { formatBookingWhen, formatPrice, londonDateKey, statusLabels } from '../../lib/format';
 import { notify, confirmAction } from '../../lib/dialog';
 import { supabase } from '../../lib/supabase';
 import type { Booking } from '../../lib/types';
@@ -21,19 +21,19 @@ export default function MyBookings() {
       .from('bookings')
       .select('*, services(name, kind), booking_dogs(dogs(name))')
       .eq('customer_id', session.user.id)
-      .order('starts_at')
+      .order('booking_date')
       .limit(200);
     // Upcoming bookings first (soonest at the top), then past ones (most recent first).
     const all = (data as Booking[]) ?? [];
-    const nowIso = new Date().toISOString();
-    setBookings([...all.filter((b) => b.starts_at >= nowIso), ...all.filter((b) => b.starts_at < nowIso).reverse()]);
+    const today = londonDateKey(new Date());
+    setBookings([...all.filter((b) => b.booking_date >= today), ...all.filter((b) => b.booking_date < today).reverse()]);
     setRefreshing(false);
   }, [session]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   function cancel(booking: Booking) {
-    confirmAction('Cancel this booking?', formatDateTime(booking.starts_at), 'Cancel booking', async () => {
+    confirmAction('Cancel this booking?', formatBookingWhen(booking), 'Cancel booking', async () => {
       const { error } = await supabase.rpc('cancel_booking', { p_booking_id: booking.id });
       if (error) notify('Could not cancel', error.message);
       else notify('Booking cancelled');
@@ -41,7 +41,6 @@ export default function MyBookings() {
     });
   }
 
-  const now = Date.now();
   return (
     <FlatList
       style={{ backgroundColor: colors.background }}
@@ -61,7 +60,7 @@ export default function MyBookings() {
       }
       ListEmptyComponent={<Text style={[text.muted, { textAlign: 'center', marginTop: 40 }]}>No bookings yet.</Text>}
       renderItem={({ item }) => {
-        const upcoming = new Date(item.starts_at).getTime() > now;
+        const upcoming = item.booking_date > londonDateKey(new Date());
         const canCancel = upcoming && (item.status === 'requested' || item.status === 'approved');
         return (
           <Card>
@@ -74,7 +73,7 @@ export default function MyBookings() {
                 </Text>
               </View>
             </View>
-            <Text style={text.body}>{formatDateTime(item.starts_at)}</Text>
+            <Text style={text.body}>{formatBookingWhen(item)}</Text>
             <Text style={text.muted}>
               {item.booking_dogs?.map((bd) => bd.dogs.name).join(', ')} · {formatPrice(item.price_pence)} ·{' '}
               {item.payment_method === 'card' ? 'Card' : 'Invoice'}

@@ -14,42 +14,21 @@ const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 export const DEMO_CUSTOMER_ID = 'demo-customer';
 export const DEMO_OWNER_ID = 'demo-owner';
 
-function londonParts(d: Date) {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/London', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-  }).formatToParts(d);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
-  const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(get('weekday'));
-  return { weekday, minutes: parseInt(get('hour'), 10) * 60 + parseInt(get('minute'), 10) };
+/** YYYY-MM-DD, `days` after a London date key. */
+function addDaysKey(key: string, days: number): string {
+  const d = new Date(`${key}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
-/** UTC instants for each 30 min start on a London calendar day. */
-function halfHoursOn(day: string): Date[] {
-  const out: Date[] = [];
-  const base = new Date(`${day}T00:00:00Z`).getTime() - 2 * HOUR;
-  for (let t = base; t < base + 28 * HOUR; t += HOUR / 2) {
-    const d = new Date(t);
-    if (londonDateKey(d) === day) out.push(d);
-  }
-  return out;
-}
+const weekdayOfKey = (key: string) => new Date(`${key}T12:00:00Z`).getUTCDay();
+const today = () => londonDateKey(new Date());
 
-/** A London day `offset` days from today at hh:mm, as an ISO string. */
-function at(offset: number, hhmm: string): string {
-  const day = londonDateKey(new Date(Date.now() + offset * 24 * HOUR));
-  const [h, m] = hhmm.split(':').map(Number);
-  const match = halfHoursOn(day).find((d) => londonParts(d).minutes === h * 60 + m);
-  return (match ?? new Date(`${day}T${hhmm}:00Z`)).toISOString();
-}
-
-/** Next working day (Mon to Fri) at least `min` days ahead. */
-function workday(min: number): number {
-  let i = min;
-  while (true) {
-    const wd = londonParts(new Date(Date.now() + i * 24 * HOUR)).weekday;
-    if (wd >= 1 && wd <= 5) return i;
-    i++;
-  }
+/** The next working day (Mon to Fri) at least `min` days from today, as a date key. */
+function workday(min: number): string {
+  let key = addDaysKey(today(), min);
+  while (weekdayOfKey(key) === 0 || weekdayOfKey(key) === 6) key = addDaysKey(key, 1);
+  return key;
 }
 
 function seed() {
@@ -73,13 +52,12 @@ function seed() {
     { id: 'd3', owner_id: 'c2', name: 'Murphy', breed: 'Labrador', vet_details: null, vaccinations_up_to_date: true, good_with_other_dogs: true, notes: 'Loves water' },
     { id: 'd4', owner_id: 'c3', name: 'Pepper', breed: 'Jack Russell', vet_details: null, vaccinations_up_to_date: false, good_with_other_dogs: false, notes: null },
   ];
-  const w1 = workday(1), w2 = workday(w1 + 1), w3 = workday(w2 + 1);
-  const mk = (id: string, customer: string, svc: string, starts: string, status: string, method: string, dogIds: string[], notes: string | null = null, batch: string | null = null) => {
+  const w1 = workday(1), w2 = workday(2), w3 = workday(3);
+  const mk = (id: string, customer: string, svc: string, date: string, window: string, status: string, method: string, dogIds: string[], notes: string | null = null, batch: string | null = null) => {
     const s = services.find((x) => x.id === svc)!;
     return {
       booking: {
-        id, customer_id: customer, service_id: svc, starts_at: starts,
-        ends_at: new Date(new Date(starts).getTime() + s.duration_min * 60_000).toISOString(),
+        id, customer_id: customer, service_id: svc, booking_date: date, time_window: window,
         status, payment_method: method, payment_status: status === 'approved' && method === 'card' ? 'paid' : 'unpaid',
         price_pence: s.price_pence, customer_notes: notes, owner_notes: null, created_at: new Date().toISOString(), decided_at: null,
         batch_id: batch,
@@ -88,14 +66,16 @@ function seed() {
     };
   };
   const seeded = [
-    mk('b1', DEMO_CUSTOMER_ID, 's4', at(w1, '10:00'), 'approved', 'card', ['d1', 'd2']),
-    mk('b2', 'c2', 's4', at(w1, '10:00'), 'approved', 'invoice', ['d3']),
+    mk('b0', DEMO_CUSTOMER_ID, 's4', today(), 'morning', 'approved', 'card', ['d1', 'd2']),
+    mk('b0b', 'c2', 's4', today(), 'morning', 'approved', 'invoice', ['d3']),
+    mk('b1', DEMO_CUSTOMER_ID, 's4', w1, 'morning', 'approved', 'card', ['d1', 'd2']),
+    mk('b2', 'c2', 's4', w1, 'morning', 'approved', 'invoice', ['d3']),
     // A block booking: the same walk on three weeks running, waiting for approval.
-    mk('b3', 'c2', 's2', at(w1, '14:00'), 'requested', 'card', ['d3'], 'Back gate code is 1234', 'batch-tom'),
-    mk('b3b', 'c2', 's2', at(w1 + 7, '14:00'), 'requested', 'card', ['d3'], 'Back gate code is 1234', 'batch-tom'),
-    mk('b3c', 'c2', 's2', at(w1 + 14, '14:00'), 'requested', 'card', ['d3'], 'Back gate code is 1234', 'batch-tom'),
-    mk('b4', DEMO_CUSTOMER_ID, 's6', at(w2, '12:00'), 'requested', 'invoice', ['d1'], 'Please top up water bowl'),
-    mk('b5', 'c2', 's1', at(w3, '09:00'), 'approved', 'card', ['d3']),
+    mk('b3', 'c2', 's2', w1, 'afternoon', 'requested', 'card', ['d3'], 'Around 2pm if possible. Back gate code is 1234', 'batch-tom'),
+    mk('b3b', 'c2', 's2', addDaysKey(w1, 7), 'afternoon', 'requested', 'card', ['d3'], 'Around 2pm if possible. Back gate code is 1234', 'batch-tom'),
+    mk('b3c', 'c2', 's2', addDaysKey(w1, 14), 'afternoon', 'requested', 'card', ['d3'], 'Around 2pm if possible. Back gate code is 1234', 'batch-tom'),
+    mk('b4', DEMO_CUSTOMER_ID, 's6', w2, 'any', 'requested', 'invoice', ['d1'], 'Please top up water bowl'),
+    mk('b5', 'c2', 's1', w3, 'evening', 'approved', 'card', ['d3']),
   ];
   const ago = (h: number) => new Date(Date.now() - h * HOUR).toISOString();
   const posts = [
@@ -137,32 +117,19 @@ function seed() {
 const db = seed();
 
 // ---------------------------------------------------------------------------
-// Booking rules (same as slot_available() in the SQL migration)
+// Booking rules (same as request_booking() in the SQL migration)
 // ---------------------------------------------------------------------------
 const holdsTime = (s: string) => s === 'requested' || s === 'approved';
-const toMin = (t: string) => parseInt(t.slice(0, 2), 10) * 60 + parseInt(t.slice(3, 5), 10);
 
-function slotAvailable(serviceId: string, startsAt: Date, dogCount: number, ignore?: string): boolean {
-  const svc = db.services.find((s) => s.id === serviceId && s.active);
-  if (!svc || dogCount < 1 || dogCount > svc.max_dogs) return false;
-  const start = startsAt.getTime();
-  const end = start + svc.duration_min * 60_000;
-  if (start < Date.now()) return false;
-  const ls = londonParts(startsAt);
-  const le = londonParts(new Date(end));
-  const sameDay = londonDateKey(startsAt) === londonDateKey(new Date(end - 1));
-  if (!sameDay || !db.working_hours.some((w) => w.weekday === ls.weekday && ls.minutes >= toMin(w.start_time) && (le.minutes || 1440) <= toMin(w.end_time))) return false;
-  if (db.time_off.some((t) => new Date(t.starts_at).getTime() < end && new Date(t.ends_at).getTime() > start)) return false;
-  const overlapping = db.bookings.filter((b) => holdsTime(b.status) && b.id !== ignore
-    && new Date(b.starts_at).getTime() < end && new Date(b.ends_at).getTime() > start);
-  const isSameGroup = (b: Row) => svc.kind === 'group_walk' && b.service_id === svc.id && new Date(b.starts_at).getTime() === start;
-  if (overlapping.some((b) => !isSameGroup(b))) return false;
-  if (svc.kind === 'group_walk') {
-    const ids = new Set(overlapping.filter(isSameGroup).map((b) => b.id));
-    const dogsInGroup = db.booking_dogs.filter((bd) => ids.has(bd.booking_id)).length;
-    if (dogsInGroup + dogCount > svc.max_dogs) return false;
-  }
-  return true;
+function isBlocked(key: string): boolean {
+  const start = new Date(`${key}T00:00:00Z`).getTime() - HOUR; // generous around BST
+  const end = start + 26 * HOUR;
+  return db.time_off.some((t) => new Date(t.starts_at).getTime() < end && new Date(t.ends_at).getTime() > start);
+}
+
+function dayBookable(key: string): boolean {
+  return key > today() && key <= addDaysKey(today(), 120)
+    && db.working_hours.some((w) => w.weekday === weekdayOfKey(key)) && !isBlocked(key);
 }
 
 // ---------------------------------------------------------------------------
@@ -273,23 +240,27 @@ export const demoClient = {
   from: (table: string) => new Query(table),
   rpc: async (fn: string, args: Row): Promise<{ data: any; error: any }> => {
     const me = db.profiles.find((p) => p.id === session?.user.id);
-    if (fn === 'available_slots') {
-      const data = halfHoursOn(args.p_date)
-        .filter((d) => slotAvailable(args.p_service_id, d, args.p_dog_count ?? 1))
-        .map((d) => ({ starts_at: d.toISOString() }));
-      return { data, error: null };
+    if (fn === 'blocked_dates') {
+      const out: string[] = [];
+      for (let k = args.p_from; k <= args.p_to; k = addDaysKey(k, 1)) if (isBlocked(k)) out.push(k);
+      return { data: out, error: null };
     }
     if (fn === 'request_booking') {
-      if (!me) return { data: null, error: { message: 'Not signed in' } };
-      if (!me.approved) return { data: null, error: { message: 'Your account is waiting for a meet and greet' } };
-      if (!slotAvailable(args.p_service_id, new Date(args.p_starts_at), args.p_dog_ids.length)) {
-        return { data: null, error: { message: 'That time is no longer available' } };
-      }
-      const svc = db.services.find((s) => s.id === args.p_service_id)!;
+      const fail = (message: string) => ({ data: null, error: { message } });
+      if (!me) return fail('Not signed in');
+      if (!me.approved) return fail('Your account is waiting for a meet and greet');
+      const svc = db.services.find((s) => s.id === args.p_service_id && s.active);
+      if (!svc) return fail('That service is not available');
+      if (!args.p_dog_ids?.length) return fail('Choose at least one dog');
+      if (args.p_dog_ids.length > svc.max_dogs) return fail(`Up to ${svc.max_dogs} dogs per booking for this service`);
+      if (!dayBookable(args.p_date)) return fail(`${args.p_date} is not available to book`);
+      const clash = db.bookings.some((b) => holdsTime(b.status) && b.service_id === svc.id && b.booking_date === args.p_date
+        && b.time_window === args.p_time_window
+        && db.booking_dogs.some((bd) => bd.booking_id === b.id && args.p_dog_ids.includes(bd.dog_id)));
+      if (clash) return fail(`Already booked on ${args.p_date}`);
       const id = uid();
       db.bookings.push({
-        id, customer_id: me.id, service_id: svc.id, starts_at: new Date(args.p_starts_at).toISOString(),
-        ends_at: new Date(new Date(args.p_starts_at).getTime() + svc.duration_min * 60_000).toISOString(),
+        id, customer_id: me.id, service_id: svc.id, booking_date: args.p_date, time_window: args.p_time_window,
         status: 'requested', payment_method: args.p_payment_method, payment_status: 'unpaid',
         price_pence: svc.price_pence, customer_notes: args.p_notes, owner_notes: null,
         created_at: new Date().toISOString(), decided_at: null, batch_id: args.p_batch_id ?? null,
@@ -299,7 +270,7 @@ export const demoClient = {
     }
     if (fn === 'cancel_booking') {
       const b = db.bookings.find((x) => x.id === args.p_booking_id && x.customer_id === me?.id);
-      if (!b || !holdsTime(b.status)) return { data: null, error: { message: 'Booking cannot be cancelled' } };
+      if (!b || !holdsTime(b.status) || b.booking_date <= today()) return { data: null, error: { message: 'Booking cannot be cancelled' } };
       b.status = 'cancelled';
       return { data: null, error: null };
     }

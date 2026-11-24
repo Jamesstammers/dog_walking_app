@@ -5,9 +5,9 @@
 create or replace function assert(cond boolean, msg text) returns void language plpgsql as $$
 begin if not coalesce(cond, false) then raise exception 'FAIL: %', msg; end if; raise notice 'ok: %', msg; end $$;
 
--- Times: next Monday 10:00 London.
+-- Dates: next Monday (London) and the Saturday before it.
 create temp table t as select
-  ((date_trunc('week', now() at time zone 'Europe/London') + interval '7 days 10 hours') at time zone 'Europe/London') as mon10;
+  (date_trunc('week', now() at time zone 'Europe/London') + interval '7 days')::date as mon;
 
 insert into auth.users (id) values
   ('00000000-0000-0000-0000-000000000001'), -- owner
@@ -24,63 +24,62 @@ insert into dogs (id, owner_id, name) values
 create temp table svc as select kind, duration_min, id from services;
 grant all on t, svc to public;
 
--- Customer A books a group walk at 10:00 with two dogs.
+create or replace function expect_error(q text, msg text) returns void language plpgsql as $$
+begin
+  execute q;
+  raise exception 'FAIL: % (no error)', msg;
+exception when others then
+  if sqlerrm like 'FAIL%' then raise; end if;
+  raise notice 'ok: % (%)', msg, sqlerrm;
+end $$;
+
 set test.uid = '00000000-0000-0000-0000-000000000002';
 select assert(request_booking(
-  (select id from svc where kind='group_walk' and duration_min=60), (select mon10 from t),
+  (select id from svc where kind='group_walk' and duration_min=60), (select mon from t), 'morning',
   array['10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002']::uuid[], 'card') is not null,
-  'approved customer can request a group walk');
+  'approved customer can request a morning group walk');
+select assert((select time_window from bookings limit 1) = 'morning', 'booking stores the part of the day');
 
-select assert(slot_available((select id from svc where kind='group_walk' and duration_min=60), (select mon10 from t), 2),
-  'group walk still has room for 2 more dogs');
-select assert(not slot_available((select id from svc where kind='group_walk' and duration_min=60), (select mon10 from t), 3),
-  'group walk cap of 4 enforced');
-select assert(not slot_available((select id from svc where kind='solo_walk' and duration_min=30), (select mon10 from t) + interval '30 min', 1),
-  'solo walk cannot overlap a group walk');
-select assert(slot_available((select id from svc where kind='solo_walk' and duration_min=30), (select mon10 from t) + interval '60 min', 1),
-  'solo walk allowed straight after');
-select assert(not slot_available((select id from svc where kind='sit_in' and duration_min=30), (select mon10 from t) - interval '3 hours', 1),
-  'nothing before working hours (07:00)');
-select assert(not slot_available((select id from svc where kind='sit_in' and duration_min=60), (select mon10 from t) + interval '7 hours 30 min', 1),
-  'nothing running past 18:00');
-select assert(not slot_available((select id from svc where kind='sit_in' and duration_min=30), (select mon10 from t) - interval '2 days', 1),
-  'no Saturday by default');
-select assert((select count(*) from available_slots((select id from svc where kind='solo_walk' and duration_min=60), ((select mon10 from t) at time zone 'Europe/London')::date)) = 16,
-  'solo 1h: 19 starts 08:00-17:00 minus 09:30, 10:00, 10:30 blocked by the group walk');
+select expect_error($q$ select request_booking((select id from svc where kind='group_walk' and duration_min=60), (select mon from t), 'morning',
+  array['10000000-0000-0000-0000-000000000001']::uuid[], 'card') $q$, 'same dog, day and part of day is rejected');
+select assert(request_booking((select id from svc where kind='group_walk' and duration_min=60), (select mon from t), 'evening',
+  array['10000000-0000-0000-0000-000000000001']::uuid[], 'card') is not null, 'same dog can have an evening walk too');
+select expect_error($q$ select request_booking((select id from svc where kind='solo_walk' and duration_min=30), (select mon from t) - 2, 'any',
+  array['10000000-0000-0000-0000-000000000001']::uuid[], 'card') $q$, 'no Saturday by default');
+select expect_error($q$ select request_booking((select id from svc where kind='solo_walk' and duration_min=30), london_today(), 'any',
+  array['10000000-0000-0000-0000-000000000001']::uuid[], 'card') $q$, 'nothing for today or earlier');
+select expect_error($q$ select request_booking((select id from svc where kind='solo_walk' and duration_min=30), (select mon from t) + 1, 'any',
+  array['10000000-0000-0000-0000-000000000003']::uuid[], 'card') $q$, 'cannot book someone else''s dog');
 
--- Block booking: three weekly solo walks share a batch id.
-select request_booking((select id from svc where kind='solo_walk' and duration_min=30), (select mon10 from t) + make_interval(days => 7*w, hours => 4),
-  array['10000000-0000-0000-0000-000000000001']::uuid[], 'invoice', null, '20000000-0000-0000-0000-000000000001')
+-- Block booking: three weekly walks share a batch id.
+select request_booking((select id from svc where kind='solo_walk' and duration_min=30), (select mon from t) + 7*w + 1, 'afternoon',
+  array['10000000-0000-0000-0000-000000000001']::uuid[], 'invoice', 'Around 2pm please', '20000000-0000-0000-0000-000000000001')
 from generate_series(0, 2) w;
 select assert((select count(*) from bookings where batch_id = '20000000-0000-0000-0000-000000000001') = 3,
   'block booking creates three linked bookings');
 
 -- Unapproved customer B cannot book.
 set test.uid = '00000000-0000-0000-0000-000000000003';
-do $$ begin
-  perform request_booking((select id from svc where kind='solo_walk' and duration_min=30), (select mon10 from t) + interval '2 hours',
-    array['10000000-0000-0000-0000-000000000003']::uuid[], 'card');
-  raise exception 'FAIL: unapproved customer booked';
-exception when others then
-  if sqlerrm like 'FAIL%' then raise; end if; raise notice 'ok: unapproved customer blocked (%)', sqlerrm;
-end $$;
+select expect_error($q$ select request_booking((select id from svc where kind='solo_walk' and duration_min=30), (select mon from t) + 1, 'any',
+  array['10000000-0000-0000-0000-000000000003']::uuid[], 'card') $q$, 'unapproved customer blocked');
 
 -- Customer B cannot approve themselves.
-set test.uid = '00000000-0000-0000-0000-000000000003';
 update profiles set approved = true, role = 'owner' where id = '00000000-0000-0000-0000-000000000003';
 select assert((select not approved and role = 'customer' from profiles where id='00000000-0000-0000-0000-000000000003'),
   'customer cannot self-approve or become owner');
 
--- Declined bookings free the slot.
-update bookings set status = 'declined';
-select assert(slot_available((select id from svc where kind='solo_walk' and duration_min=30), (select mon10 from t) + interval '30 min', 1),
-  'declined booking frees the slot');
-
--- Time off blocks the day.
-insert into time_off (starts_at, ends_at) select mon10 - interval '10 hours', mon10 + interval '14 hours' from t;
-select assert(not slot_available((select id from svc where kind='solo_walk' and duration_min=30), (select mon10 from t), 1),
-  'time off blocks bookings');
-\echo ALL TESTS PASSED
+-- Cancelling frees the day; time off blocks it.
+set test.uid = '00000000-0000-0000-0000-000000000002';
+select cancel_booking(id) from bookings where time_window = 'morning';
+select assert(request_booking((select id from svc where kind='group_walk' and duration_min=60), (select mon from t), 'morning',
+  array['10000000-0000-0000-0000-000000000001']::uuid[], 'card') is not null, 'cancelled booking can be rebooked');
+insert into time_off (starts_at, ends_at)
+select ((mon + 2)::timestamp at time zone 'Europe/London'), ((mon + 3)::timestamp at time zone 'Europe/London') from t;
+select assert((select array_agg(d) from blocked_dates((select mon from t), (select mon + 6 from t)) d) = array[(select mon + 2 from t)],
+  'time off shows as a blocked date');
+select expect_error($q$ select request_booking((select id from svc where kind='solo_walk' and duration_min=30), (select mon from t) + 2, 'any',
+  array['10000000-0000-0000-0000-000000000001']::uuid[], 'card') $q$, 'time off blocks bookings');
+\echo BOOKING TESTS PASSED
 
 -- Walk updates: customers only see posts that tag their own dogs.
 set test.uid = '';

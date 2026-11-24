@@ -30,15 +30,12 @@ export default function OwnerUpdates() {
     const [{ data: d }, { data: p }, { data: b }] = await Promise.all([
       supabase.from('dogs').select('*').order('name'),
       supabase.from('posts').select('*, post_dogs(dog_id, dogs(name, photo_url))').order('created_at', { ascending: false }).limit(30),
-      supabase.from('bookings').select('starts_at, booking_dogs(dog_id)').eq('status', 'approved')
-        .gte('starts_at', new Date(Date.now() - 18 * 3600_000).toISOString())
-        .lt('starts_at', new Date(Date.now() + 18 * 3600_000).toISOString()),
+      supabase.from('bookings').select('booking_date, booking_dogs(dog_id)').eq('status', 'approved')
+        .eq('booking_date', londonDateKey(new Date())),
     ]);
     setDogs((d as DogWithOwner[]) ?? []);
     setPosts((p as Post[]) ?? []);
-    const today = londonDateKey(new Date());
-    const ids = ((b as { starts_at: string; booking_dogs: { dog_id: string }[] }[]) ?? [])
-      .filter((x) => londonDateKey(new Date(x.starts_at)) === today)
+    const ids = ((b as { booking_dogs: { dog_id: string }[] }[]) ?? [])
       .flatMap((x) => (x.booking_dogs ?? []).map((bd) => bd.dog_id));
     setTodaysDogIds([...new Set(ids)]);
   }, []);

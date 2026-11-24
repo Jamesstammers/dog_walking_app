@@ -48,3 +48,23 @@ export function timeAgo(iso: string): string {
   if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
   return formatDateTime(iso);
 }
+
+export const timeWindows = {
+  morning: { label: 'Morning', hours: '8am to 12pm', icon: 'partly-sunny' },
+  afternoon: { label: 'Afternoon', hours: '12pm to 5pm', icon: 'sunny' },
+  evening: { label: 'Evening', hours: '5pm to 8pm', icon: 'moon' },
+  any: { label: 'No preference', hours: 'Any time that day', icon: 'time' },
+} as const;
+
+/** Order for listing a day's bookings. */
+export const windowOrder = ['morning', 'afternoon', 'evening', 'any'] as const;
+
+/** "Tue 24 Nov" for a YYYY-MM-DD London date. */
+export function formatDateKey(key: string): string {
+  return formatDay(new Date(`${key}T12:00:00Z`));
+}
+
+/** "Tue 24 Nov, Morning". */
+export function formatBookingWhen(b: { booking_date: string; time_window: keyof typeof timeWindows }): string {
+  return `${formatDateKey(b.booking_date)}, ${timeWindows[b.time_window].label}`;
+}

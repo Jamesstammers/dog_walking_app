@@ -1,22 +1,22 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { addDays, Calendar, weekdayOf } from '../../components/Calendar';
 import { DogAvatar } from '../../components/DogAvatar';
 import { Button, Card, Chip, colors, Field, fonts, text } from '../../components/ui';
 import { useAuth } from '../../lib/auth';
 import { notify } from '../../lib/dialog';
-import { formatDay, formatPrice, formatTime, londonDateKey } from '../../lib/format';
+import { formatDay, formatPrice, londonDateKey, timeWindows } from '../../lib/format';
 import { supabase } from '../../lib/supabase';
-import type { Dog, PaymentMethod, Service, ServiceKind } from '../../lib/types';
+import type { Dog, PaymentMethod, Service, ServiceKind, TimeWindow } from '../../lib/types';
 
 /*
  * Booking is one question per step:
  *   1 What  - service and length
  *   2 Who   - which dogs (skipped when there's only one)
- *   3 When  - a one-off date, or the same weekdays every week
- *   4 Time  - one time for every date
+ *   3 When  - one or more dates, or the same weekdays every week
+ *   4 Time  - morning, afternoon, evening or no preference (exact times go in the notes)
  *   5 Check - summary, payment, notes, send
  */
 
@@ -30,6 +30,12 @@ const BOOK_AHEAD_DAYS = 90;
 const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const WEEK_OPTIONS = [4, 8, 12];
 const STEPS = ['What', 'Who', 'When', 'Time', 'Check'] as const;
+const windowTints: Record<TimeWindow, string> = {
+  morning: colors.accent,
+  afternoon: colors.pink,
+  evening: colors.primary,
+  any: colors.blue,
+};
 
 const newBatchId = () =>
   'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -50,12 +56,11 @@ export default function Book() {
   const [duration, setDuration] = useState<30 | 60>(60);
   const [dogIds, setDogIds] = useState<string[]>([]);
   const [often, setOften] = useState<'once' | 'weekly'>('once');
-  const [onceDate, setOnceDate] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [blocked, setBlocked] = useState<string[]>([]);
   const [weekdays, setWeekdays] = useState<number[]>([]);
   const [weeks, setWeeks] = useState(4);
-  const [slotsByDate, setSlotsByDate] = useState<Record<string, Record<string, string>>>({});
-  const [loadingSlots, setLoadingSlots] = useState(false);
-  const [time, setTime] = useState<string | null>(null);
+  const [window, setWindow] = useState<TimeWindow | null>(null);
   const [payment, setPayment] = useState<PaymentMethod>('card');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -66,6 +71,7 @@ export default function Book() {
   useFocusEffect(
     useCallback(() => {
       supabase.from('services').select('*').eq('active', true).then(({ data }) => setServices((data as Service[]) ?? []));
+      supabase.rpc('blocked_dates', { p_from: today, p_to: maxDate }).then(({ data }) => setBlocked((data as string[]) ?? []));
       supabase.from('working_hours').select('weekday').then(({ data }) => {
         if (data) setWorkingDays([...new Set((data as { weekday: number }[]).map((w) => w.weekday))].sort());
       });
@@ -76,91 +82,67 @@ export default function Book() {
           if (list.length === 1) setDogIds([list[0].id]);
         });
       }
-    }, [session]),
+    }, [session, today, maxDate]),
   );
 
   const service = useMemo(
     () => services.find((s) => s.kind === kind && s.duration_min === duration) ?? null,
     [services, kind, duration],
   );
-  const dogCount = Math.max(dogIds.length, 1);
   const skipWho = dogs.length === 1;
+  // Bookable from tomorrow, on working days, outside her time off.
+  const isDisabled = useCallback(
+    (key: string) => key <= today || !workingDays.includes(weekdayOf(key)) || blocked.includes(key),
+    [today, workingDays, blocked],
+  );
 
   // The dates this booking covers.
   const dates = useMemo(() => {
-    if (often === 'once') return onceDate ? [onceDate] : [];
+    if (often === 'once') return [...picked].sort();
     if (weekdays.length === 0) return [];
     const out: string[] = [];
     const start = addDays(today, 1);
     for (let key = start; key < addDays(start, weeks * 7) && key <= maxDate; key = addDays(key, 1)) {
-      if (weekdays.includes(weekdayOf(key))) out.push(key);
+      if (weekdays.includes(weekdayOf(key)) && !isDisabled(key)) out.push(key);
     }
     return out;
-  }, [often, onceDate, weekdays, weeks, today, maxDate]);
+  }, [often, picked, weekdays, weeks, today, maxDate, isDisabled]);
 
-  // Free times for each date, as London "HH:MM" -> ISO start.
-  useEffect(() => {
-    if (step !== 3 || !service || dates.length === 0) return;
-    let stale = false;
-    setLoadingSlots(true);
-    Promise.all(
-      dates.map(async (d) => {
-        const { data } = await supabase.rpc('available_slots', { p_service_id: service.id, p_date: d, p_dog_count: dogCount });
-        const map: Record<string, string> = {};
-        for (const r of (data as { starts_at: string }[]) ?? []) map[formatTime(r.starts_at)] = r.starts_at;
-        return [d, map] as const;
-      }),
-    ).then((entries) => {
-      if (stale) return;
-      setSlotsByDate(Object.fromEntries(entries));
-      setLoadingSlots(false);
-    });
-    return () => { stale = true; };
-  }, [step, service, dates, dogCount]);
-
-  // Every time that's free on at least one date, with how many dates it suits.
-  const times = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const d of dates) for (const t of Object.keys(slotsByDate[d] ?? {})) counts[t] = (counts[t] ?? 0) + 1;
-    return Object.keys(counts).sort().map((t) => ({ t, n: counts[t] }));
-  }, [slotsByDate, dates]);
-  const bookable = time ? dates.filter((d) => slotsByDate[d]?.[time]) : [];
-  const clashes = time ? dates.filter((d) => !slotsByDate[d]?.[time]) : [];
-  const total = service ? service.price_pence * bookable.length : 0;
+  const total = service ? service.price_pence * dates.length : 0;
 
   const canNext = [
     !!service,
     dogIds.length > 0 && (!service || dogIds.length <= service.max_dogs),
     dates.length > 0,
-    !!time && bookable.length > 0,
+    !!window,
     true,
   ][step];
 
   function go(to: number) {
     if (to === 1 && skipWho) to = step < 1 ? 2 : 0;
-    if (to === 3) setTime(null);
     setStep(Math.max(0, Math.min(4, to)));
   }
 
   function reset() {
     setStep(0);
     setKind(null);
-    setOnceDate(null);
+    setPicked([]);
     setWeekdays([]);
-    setTime(null);
+    setWindow(null);
     setNotes('');
     if (!skipWho) setDogIds([]);
   }
 
   async function submit() {
-    if (!service || !time || bookable.length === 0) return;
+    if (!service || !window || dates.length === 0) return;
     setSubmitting(true);
-    const batchId = bookable.length > 1 ? newBatchId() : null;
+    const batchId = dates.length > 1 ? newBatchId() : null;
     const results = await Promise.all(
-      bookable.map((d) =>
+      dates.map((d) =>
         supabase.rpc('request_booking', {
           p_service_id: service.id,
-          p_starts_at: slotsByDate[d][time],
+          p_date: d,
+          p_time_window: window,
           p_dog_ids: dogIds,
           p_payment_method: payment,
           p_notes: notes || null,
@@ -177,7 +159,9 @@ export default function Book() {
     }
     notify(
       ok === 1 ? 'Request sent' : `${ok} bookings requested`,
-      ok < bookable.length ? `${bookable.length - ok} of the times were just taken.` : "We'll confirm shortly.",
+      ok < dates.length
+        ? `${dates.length - ok} couldn't be booked: ${results.find((r) => r.error)?.error?.message ?? ''}`
+        : "We'll confirm shortly.",
     );
     reset();
     router.navigate('/(customer)');
@@ -279,13 +263,16 @@ export default function Book() {
             </View>
 
             {often === 'once' ? (
-              <Calendar
-                today={today}
-                maxDate={maxDate}
-                selected={onceDate ? [onceDate] : []}
-                isDisabled={(key) => !workingDays.includes(weekdayOf(key))}
-                onToggle={(key) => setOnceDate(key === onceDate ? null : key)}
-              />
+              <>
+                <Text style={[text.muted, { marginBottom: 8 }]}>Tap every day you'd like a walk.</Text>
+                <Calendar
+                  today={today}
+                  maxDate={maxDate}
+                  selected={picked}
+                  isDisabled={isDisabled}
+                  onToggle={(key) => setPicked((p) => (p.includes(key) ? p.filter((d) => d !== key) : [...p, key]))}
+                />
+              </>
             ) : (
               <Card>
                 <Text style={styles.subQuestion}>Which days?</Text>
@@ -305,9 +292,11 @@ export default function Book() {
             )}
             {dates.length > 0 && (
               <Text style={[text.muted, { marginTop: 8 }]}>
-                {often === 'once'
+                {dates.length === 1
                   ? dayLabel(dates[0])
-                  : `${dates.length} ${service ? kinds[service.kind].title.toLowerCase() : 'booking'}s, from ${dayLabel(dates[0])} to ${dayLabel(dates[dates.length - 1])}`}
+                  : often === 'once'
+                    ? `${dates.length} days: ${dates.map(dayLabel).join(', ')}`
+                    : `${dates.length} ${service ? kinds[service.kind].title.toLowerCase() : 'booking'}s, from ${dayLabel(dates[0])} to ${dayLabel(dates[dates.length - 1])}`}
               </Text>
             )}
           </>
@@ -315,48 +304,27 @@ export default function Book() {
 
         {step === 3 && (
           <>
-            <Text style={styles.question}>What time suits you?</Text>
-            {dates.length > 1 && <Text style={[text.muted, { marginBottom: 8 }]}>We'll use the same time for all {dates.length} dates.</Text>}
-            {loadingSlots ? (
-              <ActivityIndicator color={colors.primary} style={{ marginVertical: 24 }} />
-            ) : times.length === 0 ? (
-              <Text style={text.muted}>Sorry, nothing's free then. Go back and try other days.</Text>
-            ) : (
-              <>
-                {[
-                  { label: 'Morning', match: (t: string) => t < '12:00' },
-                  { label: 'Afternoon', match: (t: string) => t >= '12:00' },
-                ].map((part) => {
-                  const list = times.filter((x) => part.match(x.t));
-                  if (list.length === 0) return null;
-                  return (
-                    <View key={part.label} style={{ marginBottom: 8 }}>
-                      <Text style={styles.subQuestion}>{part.label}</Text>
-                      <View style={styles.wrap}>
-                        {list.map(({ t, n }) => (
-                          <Chip key={t} label={n < dates.length ? `${t} *` : t} selected={time === t} onPress={() => setTime(t)} />
-                        ))}
-                      </View>
-                    </View>
-                  );
-                })}
-                {times.some((x) => x.n < dates.length) && (
-                  <Text style={text.muted}>* Not free on every date.</Text>
-                )}
-                {time && clashes.length > 0 && (
-                  <View style={styles.clash}>
-                    <Ionicons name="alert-circle" size={20} color={colors.accent} />
-                    <Text style={[text.body, { flex: 1 }]}>
-                      {time} is taken on {clashes.map(dayLabel).join(', ')}. We'll book the other {bookable.length}.
-                    </Text>
+            <Text style={styles.question}>What time of day?</Text>
+            {dates.length > 1 && <Text style={[text.muted, { marginBottom: 8 }]}>This applies to all {dates.length} dates.</Text>}
+            {(Object.keys(timeWindows) as TimeWindow[]).map((w) => (
+              <Card key={w} selected={window === w} onPress={() => setWindow(w)}>
+                <View style={styles.serviceRow}>
+                  <View style={[styles.serviceIcon, { backgroundColor: windowTints[w] }]}>
+                    <Ionicons name={timeWindows[w].icon} size={22} color="#fff" />
                   </View>
-                )}
-              </>
-            )}
+                  <View style={{ flex: 1 }}>
+                    <Text style={text.title}>{timeWindows[w].label}</Text>
+                    <Text style={text.muted}>{timeWindows[w].hours}</Text>
+                  </View>
+                  {window === w && <Ionicons name="checkmark-circle" size={26} color={colors.primary} />}
+                </View>
+              </Card>
+            ))}
+            <Text style={[text.muted, { marginTop: 4 }]}>Need a specific time? Add it in the notes on the next step.</Text>
           </>
         )}
 
-        {step === 4 && service && time && (
+        {step === 4 && service && window && (
           <>
             <Text style={styles.question}>Check and send</Text>
             <Card>
@@ -370,9 +338,9 @@ export default function Book() {
                 </View>
               </View>
               <Text style={[text.body, { marginTop: 10 }]}>
-                {bookable.length === 1 ? `${dayLabel(bookable[0])} at ${time}` : `${bookable.length} dates at ${time}`}
+                {dates.length === 1 ? dayLabel(dates[0]) : `${dates.length} dates`} · {timeWindows[window].label}
               </Text>
-              {bookable.length > 1 && <Text style={text.muted}>{bookable.map(dayLabel).join(', ')}</Text>}
+              {dates.length > 1 && <Text style={text.muted}>{dates.map(dayLabel).join(', ')}</Text>}
               <View style={styles.totalRow}>
                 <Text style={text.body}>Total</Text>
                 <Text style={styles.total}>{formatPrice(total)}</Text>
@@ -390,7 +358,13 @@ export default function Book() {
                 <Text style={text.muted}>We'll email you an invoice after it's confirmed.</Text>
               </Card>
             )}
-            <Field label="Anything we should know? (optional)" value={notes} onChangeText={setNotes} multiline />
+            <Field
+              label="A specific time, or anything else we should know? (optional)"
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="e.g. Around 10am please, key is under the mat"
+              multiline
+            />
           </>
         )}
       </ScrollView>
@@ -406,7 +380,7 @@ export default function Book() {
             <Button title="Next" onPress={() => go(step + 1)} disabled={!canNext} />
           ) : (
             <Button
-              title={bookable.length > 1 ? `Request ${bookable.length} bookings` : 'Request booking'}
+              title={dates.length > 1 ? `Request ${dates.length} bookings` : 'Request booking'}
               onPress={submit}
               loading={submitting}
             />
@@ -437,7 +411,6 @@ const styles = StyleSheet.create({
   segmentItem: { flex: 1, paddingVertical: 10, borderRadius: 20, alignItems: 'center' },
   segmentOn: { backgroundColor: colors.primary },
   segmentText: { fontFamily: fonts.bold, fontSize: 16, color: colors.primary },
-  clash: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', backgroundColor: '#FFF1E8', borderRadius: 14, padding: 12, marginTop: 10 },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.border },
   total: { fontFamily: fonts.bold, fontSize: 20, color: colors.primary },
   footer: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.background },

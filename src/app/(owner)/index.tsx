@@ -4,7 +4,7 @@ import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { BookingCard, ownerBookingSelect, type OwnerBooking } from '../../components/BookingCard';
 import { Button, colors, fonts, text } from '../../components/ui';
 import { notify } from '../../lib/dialog';
-import { formatDay, formatTime } from '../../lib/format';
+import { formatBookingWhen, londonDateKey } from '../../lib/format';
 import { supabase } from '../../lib/supabase';
 
 type Group = { key: string; bookings: OwnerBooking[] };
@@ -20,8 +20,8 @@ export default function Requests() {
       .from('bookings')
       .select(ownerBookingSelect)
       .eq('status', 'requested')
-      .gte('starts_at', new Date().toISOString())
-      .order('starts_at');
+      .gte('booking_date', londonDateKey(new Date()))
+      .order('booking_date');
     setRequests((data as OwnerBooking[]) ?? []);
     setRefreshing(false);
   }, []);
@@ -73,7 +73,7 @@ export default function Requests() {
               <View style={styles.dates}>
                 {group.bookings.map((b) => (
                   <View key={b.id} style={styles.datePill}>
-                    <Text style={styles.dateText}>{formatDay(new Date(b.starts_at))} {formatTime(b.starts_at)}</Text>
+                    <Text style={styles.dateText}>{formatBookingWhen(b)}</Text>
                   </View>
                 ))}
               </View>

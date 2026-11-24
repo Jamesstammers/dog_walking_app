@@ -12,17 +12,13 @@ export default function Schedule() {
   const [bookings, setBookings] = useState<OwnerBooking[]>([]);
 
   const load = useCallback(async () => {
-    // Fetch a window around the London day, then filter by London date.
-    const from = new Date(`${day}T00:00:00Z`).getTime() - 2 * 3600_000;
-    const to = from + 28 * 3600_000;
     const { data } = await supabase
       .from('bookings')
       .select(ownerBookingSelect)
       .in('status', ['approved', 'requested', 'completed'])
-      .gte('starts_at', new Date(from).toISOString())
-      .lt('starts_at', new Date(to).toISOString())
-      .order('starts_at');
-    setBookings(((data as OwnerBooking[]) ?? []).filter((b) => londonDateKey(new Date(b.starts_at)) === day));
+      .eq('booking_date', day);
+    const order = ['morning', 'afternoon', 'evening', 'any'];
+    setBookings(((data as OwnerBooking[]) ?? []).sort((x, y) => order.indexOf(x.time_window) - order.indexOf(y.time_window)));
   }, [day]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
