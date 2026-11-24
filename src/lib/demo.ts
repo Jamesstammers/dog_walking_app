@@ -33,8 +33,8 @@ function workday(min: number): string {
 
 function seed() {
   const services = [
-    { id: 's1', kind: 'solo_walk', duration_min: 30, name: 'Solo walk (30 min)', price_pence: 1200, max_dogs: 2, active: true },
-    { id: 's2', kind: 'solo_walk', duration_min: 60, name: 'Solo walk (1 hour)', price_pence: 1800, max_dogs: 2, active: true },
+    { id: 's1', kind: 'solo_walk', duration_min: 30, name: 'Solo walk (30 min)', price_pence: 1200, max_dogs: 1, active: true },
+    { id: 's2', kind: 'solo_walk', duration_min: 60, name: 'Solo walk (1 hour)', price_pence: 1800, max_dogs: 1, active: true },
     { id: 's3', kind: 'group_walk', duration_min: 30, name: 'Group walk (30 min)', price_pence: 1000, max_dogs: 4, active: true },
     { id: 's4', kind: 'group_walk', duration_min: 60, name: 'Group walk (1 hour)', price_pence: 1500, max_dogs: 4, active: true },
     { id: 's5', kind: 'sit_in', duration_min: 30, name: 'Sit-in (30 min)', price_pence: 1200, max_dogs: 3, active: true },
@@ -289,7 +289,7 @@ export const demoClient = {
       const svc = db.services.find((s) => s.id === args.p_service_id && s.active);
       if (!svc) return fail('That service is not available');
       if (!args.p_dog_ids?.length) return fail('Choose at least one dog');
-      if (args.p_dog_ids.length > svc.max_dogs) return fail(`Up to ${svc.max_dogs} dogs per booking for this service`);
+      if (args.p_dog_ids.length > svc.max_dogs) return fail(svc.max_dogs === 1 ? 'A solo walk is for one dog. Book a group walk for more.' : `Up to ${svc.max_dogs} dogs per booking for this service`);
       if (!dayBookable(args.p_date)) return fail(`${args.p_date} is not available to book`);
       const joiningGroup = svc.kind === 'group_walk' && args.p_time_window !== 'any' && db.bookings.some((b) =>
         holdsTime(b.status) && b.service_id === svc.id && b.booking_date === args.p_date && b.time_window === args.p_time_window);
@@ -302,7 +302,7 @@ export const demoClient = {
       db.bookings.push({
         id, customer_id: me.id, service_id: svc.id, booking_date: args.p_date, time_window: args.p_time_window,
         status: 'requested', payment_method: args.p_payment_method, payment_status: 'unpaid',
-        price_pence: svc.price_pence, customer_notes: args.p_notes, owner_notes: null,
+        price_pence: svc.kind === 'group_walk' ? svc.price_pence * args.p_dog_ids.length : svc.price_pence, customer_notes: args.p_notes, owner_notes: null,
         created_at: new Date().toISOString(), decided_at: null, batch_id: args.p_batch_id ?? null,
       });
       for (const dog_id of args.p_dog_ids) db.booking_dogs.push({ booking_id: id, dog_id });

@@ -119,11 +119,13 @@ export default function Settings() {
             </View>
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
               <View style={{ flex: 1 }}>
-                <Field label="Price (£)" value={d.price} onChangeText={(price) => setDraft({ price })} keyboardType="decimal-pad" />
+                <Field label={s.kind === 'group_walk' ? 'Price per dog (£)' : 'Price (£)'} value={d.price} onChangeText={(price) => setDraft({ price })} keyboardType="decimal-pad" />
               </View>
-              <View style={{ flex: 1 }}>
-                <Field label="Max dogs" value={d.maxDogs} onChangeText={(maxDogs) => setDraft({ maxDogs })} keyboardType="number-pad" />
-              </View>
+              {s.kind !== 'solo_walk' && (
+                <View style={{ flex: 1 }}>
+                  <Field label="Max dogs" value={d.maxDogs} onChangeText={(maxDogs) => setDraft({ maxDogs })} keyboardType="number-pad" />
+                </View>
+              )}
             </View>
             <Button
               variant="secondary"

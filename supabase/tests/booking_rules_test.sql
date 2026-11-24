@@ -23,6 +23,7 @@ insert into dogs (id, owner_id, name) values
 
 create temp table svc as select kind, duration_min, id from services;
 grant all on t, svc to public;
+update services set price_pence = 1500 where kind = 'group_walk' and duration_min = 60;
 
 create or replace function expect_error(q text, msg text) returns void language plpgsql as $$
 begin
@@ -38,6 +39,12 @@ select assert(request_booking(
   (select id from svc where kind='group_walk' and duration_min=60), (select mon from t), 'morning',
   array['10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002']::uuid[], 'card') is not null,
   'approved customer can request a morning group walk');
+select assert((select b.price_pence from bookings b join services s on s.id = b.service_id
+  where s.kind='group_walk' and s.duration_min=60 and b.time_window='morning' and b.booking_date=(select mon from t))
+  = 2 * (select price_pence from services where kind='group_walk' and duration_min=60), 'group walk price is per dog (2 dogs = double)');
+select expect_error($q$ select request_booking((select id from svc where kind='solo_walk' and duration_min=30), (select mon + 1 from t), 'morning',
+  array['10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002']::uuid[], 'card') $q$, 'solo walk takes one dog only');
+select expect_error($q$ update services set max_dogs = 2 where kind = 'solo_walk' $q$, 'solo walk cannot be set above one dog');
 select assert((select time_window from bookings limit 1) = 'morning', 'booking stores the part of the day');
 
 select expect_error($q$ select request_booking((select id from svc where kind='group_walk' and duration_min=60), (select mon from t), 'morning',

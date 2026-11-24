@@ -50,13 +50,15 @@ create table services (
   price_pence   int not null default 0 check (price_pence >= 0),
   -- Max dogs per booking slot. Group walks share a slot across customers.
   max_dogs      int not null default 1 check (max_dogs >= 1),
+  -- A solo walk is always one dog; group walks and sit-ins can take several.
+  constraint solo_walk_one_dog check (kind <> 'solo_walk' or max_dogs = 1),
   active        boolean not null default true,
   unique (kind, duration_min)
 );
 
 insert into services (kind, duration_min, name, max_dogs) values
-  ('solo_walk',  30, 'Solo walk (30 min)',  2),
-  ('solo_walk',  60, 'Solo walk (1 hour)',  2),
+  ('solo_walk',  30, 'Solo walk (30 min)',  1),
+  ('solo_walk',  60, 'Solo walk (1 hour)',  1),
   ('group_walk', 30, 'Group walk (30 min)', 4),
   ('group_walk', 60, 'Group walk (1 hour)', 4),
   ('sit_in',     30, 'Sit-in (30 min)',     3),
@@ -248,7 +250,8 @@ begin
   select * into svc from services where id = p_service_id and active;
   if not found then raise exception 'That service is not available'; end if;
   if array_length(p_dog_ids, 1) > svc.max_dogs then
-    raise exception 'Up to % dogs per booking for this service', svc.max_dogs;
+    raise exception '%', case when svc.max_dogs = 1 then 'A solo walk is for one dog. Book a group walk for more.'
+                             else format('Up to %s dogs per booking for this service', svc.max_dogs) end;
   end if;
   if not day_bookable(p_date) then raise exception '% is not available to book', to_char(p_date, 'Dy DD Mon'); end if;
 
@@ -274,7 +277,8 @@ begin
   end if;
 
   insert into bookings (customer_id, service_id, booking_date, time_window, payment_method, price_pence, customer_notes, batch_id)
-  values (me.id, svc.id, p_date, p_time_window, p_payment_method, svc.price_pence, p_notes, p_batch_id)
+  values (me.id, svc.id, p_date, p_time_window, p_payment_method, -- Group walks are priced per dog; solo walks and sit-ins per visit.
+    case when svc.kind = 'group_walk' then svc.price_pence * array_length(p_dog_ids, 1) else svc.price_pence end, p_notes, p_batch_id)
   returning id into new_id;
 
   insert into booking_dogs (booking_id, dog_id) select new_id, unnest(p_dog_ids);

@@ -131,7 +131,10 @@ export default function Book() {
 
   // The dates that actually get booked: those with room at the chosen time of day.
   const bookDates = useMemo(() => (window ? dates.filter((d) => freeAt(d, window)) : dates), [dates, window, freeAt]);
-  const total = service ? service.price_pence * bookDates.length : 0;
+  const perDog = service?.kind === 'group_walk'; // group walks are priced per dog; solo walks and sit-ins per visit
+  const oneDog = service?.max_dogs === 1; // solo walks
+  const perVisit = service ? service.price_pence * (perDog ? dogIds.length : 1) : 0;
+  const total = perVisit * bookDates.length;
 
   const canNext = [
     dates.length > 0,
@@ -140,6 +143,11 @@ export default function Book() {
     dogIds.length > 0 && (!service || dogIds.length <= service.max_dogs),
     true,
   ][step];
+
+  // Switching to a solo walk keeps just one of the dogs already picked.
+  useEffect(() => {
+    if (oneDog && dogIds.length > 1) setDogIds([dogIds[0]]);
+  }, [oneDog, dogIds]);
 
   function go(to: number) {
     if (to === WHO && skipWho) to = step < WHO ? WHO + 1 : WHO - 1;
@@ -339,7 +347,7 @@ export default function Book() {
                       const s = services.find((x) => x.kind === k && x.duration_min === d);
                       if (!s) return null;
                       return (
-                        <Chip key={d} label={`${d === 30 ? '30 min' : '1 hour'} · ${formatPrice(s.price_pence)}`}
+                        <Chip key={d} label={`${d === 30 ? '30 min' : '1 hour'} · ${formatPrice(s.price_pence)}${k === 'group_walk' ? ' per dog' : ''}`}
                           selected={duration === d} onPress={() => setDuration(d)} />
                       );
                     })}
@@ -352,10 +360,13 @@ export default function Book() {
 
         {step === 3 && (
           <>
-            <Text style={styles.question}>Who's coming?</Text>
+            <Text style={styles.question}>{oneDog ? 'Which dog?' : "Who's coming?"}</Text>
+            {oneDog && (
+              <Text style={[text.muted, { marginBottom: 8 }]}>A solo walk is one-to-one. To bring more than one dog, choose a group walk.</Text>
+            )}
             {dogs.map((dog, i) => (
               <Card key={dog.id} selected={dogIds.includes(dog.id)}
-                onPress={() => setDogIds((ids) => (ids.includes(dog.id) ? ids.filter((d) => d !== dog.id) : [...ids, dog.id]))}>
+                onPress={() => setDogIds((ids) => (oneDog ? [dog.id] : ids.includes(dog.id) ? ids.filter((d) => d !== dog.id) : [...ids, dog.id]))}>
                 <View style={styles.serviceRow}>
                   <DogAvatar uri={dog.photo_url} size={48} index={i} />
                   <Text style={[text.title, { flex: 1 }]}>{dog.name}</Text>
@@ -386,6 +397,13 @@ export default function Book() {
                 {bookDates.length === 1 ? dayLabel(bookDates[0]) : `${bookDates.length} dates`} · {timeWindows[window].label}
               </Text>
               {bookDates.length > 1 && <Text style={text.muted}>{bookDates.map(dayLabel).join(', ')}</Text>}
+              {(perDog && dogIds.length > 1) || bookDates.length > 1 ? (
+                <Text style={[text.muted, { marginTop: 10 }]}>
+                  {formatPrice(service.price_pence)}
+                  {perDog && dogIds.length > 1 ? ` × ${dogIds.length} dogs` : ''}
+                  {bookDates.length > 1 ? ` × ${bookDates.length} dates` : ''}
+                </Text>
+              ) : null}
               <View style={styles.totalRow}>
                 <Text style={text.body}>Total</Text>
                 <Text style={styles.total}>{formatPrice(total)}</Text>
