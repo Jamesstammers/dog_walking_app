@@ -49,6 +49,7 @@ export type Booking = {
   price_pence: number;
   customer_notes: string | null;
   batch_id: string | null;
+  cancel_requested_at: string | null;
   services?: Pick<Service, 'name' | 'kind'>;
   booking_dogs?: { dogs: Pick<Dog, 'name'> }[];
 };
@@ -74,4 +75,5 @@ export type BusinessInfo = {
   service_area: string | null;
   hours_note: string | null;
   max_walks_per_slot: number;
+  cancel_notice_hours: number;
 };

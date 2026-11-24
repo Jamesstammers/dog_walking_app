@@ -35,8 +35,8 @@ export function BookingCard({
         <ServiceBadge kind={booking.services?.kind} />
         <View style={{ flex: 1 }}>
           <Text style={text.title}>{booking.services?.name}</Text>
-          <Text style={[styles.status, booking.status === 'approved' && { color: colors.primary }]}>
-            {block ? `Block booking · ${block.count} dates` : statusLabels[booking.status]}
+          <Text style={[styles.status, booking.status === 'approved' && { color: colors.primary }, !!booking.cancel_requested_at && { color: colors.accent }]}>
+            {block ? `Block booking · ${block.count} dates` : booking.cancel_requested_at ? 'Asked to cancel' : statusLabels[booking.status]}
           </Text>
         </View>
       </View>

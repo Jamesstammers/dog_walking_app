@@ -68,3 +68,15 @@ export function formatDateKey(key: string): string {
 export function formatBookingWhen(b: { booking_date: string; time_window: keyof typeof timeWindows }): string {
   return `${formatDateKey(b.booking_date)}, ${timeWindows[b.time_window].label}`;
 }
+
+const WINDOW_START_HOUR = { morning: 8, afternoon: 12, evening: 17, any: 8 } as const;
+
+/** When a booking's part of the day starts, as a real instant (London time). Matches walk_starts_at() in SQL. */
+export function walkStartsAt(dateKey: string, window: keyof typeof WINDOW_START_HOUR): Date {
+  const hour = WINDOW_START_HOUR[window];
+  const guess = new Date(`${dateKey}T${String(hour).padStart(2, '0')}:00:00Z`);
+  const londonHour = Number(
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: '2-digit', hourCycle: 'h23' }).format(guess),
+  );
+  return new Date(guess.getTime() - (londonHour - hour) * 3_600_000);
+}

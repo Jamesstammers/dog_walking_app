@@ -3,7 +3,7 @@
  * so the app can be shown without a backend. Mirrors the booking rules in
  * supabase/migrations. Data resets when the app reloads.
  */
-import { londonDateKey } from './format';
+import { londonDateKey, walkStartsAt } from './format';
 
 type Row = Record<string, any>;
 type Listener = (event: string, session: any) => void;
@@ -60,7 +60,7 @@ function seed() {
         id, customer_id: customer, service_id: svc, booking_date: date, time_window: window,
         status, payment_method: method, payment_status: status === 'approved' && method === 'card' ? 'paid' : 'unpaid',
         price_pence: s.price_pence, customer_notes: notes, owner_notes: null, created_at: new Date().toISOString(), decided_at: null,
-        batch_id: batch,
+        batch_id: batch, cancel_requested_at: null as string | null,
       },
       dogs: dogIds,
     };
@@ -109,6 +109,7 @@ function seed() {
     service_area: 'Southsea, Fratton, Milton, Eastney and North End',
     hours_note: 'Walks Monday to Friday, 8am to 8pm. Messages answered within a few hours.',
     max_walks_per_slot: 3,
+    cancel_notice_hours: 24,
   }];
   return {
     posts,
@@ -119,7 +120,8 @@ function seed() {
     dogs,
     working_hours: [1, 2, 3, 4, 5].map((weekday) => ({ id: `wh${weekday}`, weekday, start_time: '08:00:00', end_time: '18:00:00' })),
     time_off: [] as Row[],
-    bookings: seeded.map((s) => s.booking) as Row[],
+    // Tom has asked to cancel tomorrow morning's walk, so the owner sees a cancellation request.
+    bookings: seeded.map((s) => (s.booking.id === 'b2' ? { ...s.booking, cancel_requested_at: new Date(Date.now() - HOUR).toISOString() } : s.booking)) as Row[],
     booking_dogs: seeded.flatMap((s) => s.dogs.map((dog_id) => ({ booking_id: s.booking.id, dog_id }))),
   } as Record<string, Row[]>;
 }
@@ -209,6 +211,7 @@ class Query implements PromiseLike<{ data: any; error: any }> {
   in(col: string, vs: any[]) { this.filters.push((r) => vs.includes(r[col])); return this; }
   gte(col: string, v: any) { this.filters.push((r) => r[col] >= v); return this; }
   lt(col: string, v: any) { this.filters.push((r) => r[col] < v); return this; }
+  not(col: string, op: string, v: any) { if (op === 'is' && v === null) this.filters.push((r) => r[col] != null); return this; }
   order(col: string, opts?: { ascending?: boolean }) { this.orders.push({ col, asc: opts?.ascending !== false }); return this; }
   limit(n: number) { this.max = n; return this; }
   single() { this.one = true; return this; }
@@ -303,15 +306,31 @@ export const demoClient = {
         id, customer_id: me.id, service_id: svc.id, booking_date: args.p_date, time_window: args.p_time_window,
         status: 'requested', payment_method: args.p_payment_method, payment_status: 'unpaid',
         price_pence: svc.kind === 'group_walk' ? svc.price_pence * args.p_dog_ids.length : svc.price_pence, customer_notes: args.p_notes, owner_notes: null,
-        created_at: new Date().toISOString(), decided_at: null, batch_id: args.p_batch_id ?? null,
+        created_at: new Date().toISOString(), decided_at: null, batch_id: args.p_batch_id ?? null, cancel_requested_at: null,
       });
       for (const dog_id of args.p_dog_ids) db.booking_dogs.push({ booking_id: id, dog_id });
       return { data: id, error: null };
     }
     if (fn === 'cancel_booking') {
+      // Mirrors cancel_booking() in SQL: close to the walk, an approved booking becomes a request she decides on.
       const b = db.bookings.find((x) => x.id === args.p_booking_id && x.customer_id === me?.id);
-      if (!b || !holdsTime(b.status) || b.booking_date <= today()) return { data: null, error: { message: 'Booking cannot be cancelled' } };
-      b.status = 'cancelled';
+      const starts = b ? walkStartsAt(b.booking_date, b.time_window).getTime() : 0;
+      if (!b || !holdsTime(b.status) || starts <= Date.now()) return { data: null, error: { message: 'Booking cannot be cancelled' } };
+      if (b.cancel_requested_at) return { data: null, error: { message: 'You have already asked to cancel this booking' } };
+      const notice = (db.business_info[0]?.cancel_notice_hours ?? 24) * HOUR;
+      if (b.status === 'requested' || starts > Date.now() + notice) {
+        b.status = 'cancelled';
+        return { data: 'cancelled', error: null };
+      }
+      b.cancel_requested_at = new Date().toISOString();
+      return { data: 'requested', error: null };
+    }
+    if (fn === 'decide_cancellation') {
+      if (me?.role !== 'owner') return { data: null, error: { message: 'Only the owner can do this' } };
+      const b = db.bookings.find((x) => x.id === args.p_booking_id && x.cancel_requested_at && x.status === 'approved');
+      if (!b) return { data: null, error: { message: 'No cancellation request for that booking' } };
+      if (args.p_approve) b.status = 'cancelled';
+      b.cancel_requested_at = null;
       return { data: null, error: null };
     }
     return { data: null, error: { message: `Unknown function ${fn}` } };

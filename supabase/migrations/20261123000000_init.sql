@@ -111,6 +111,8 @@ create table bookings (
   owner_notes    text,
   -- Bookings requested together (a block booking) share a batch id.
   batch_id       uuid,
+  -- Set when a customer asks to cancel close to the walk; she approves or declines.
+  cancel_requested_at timestamptz,
   created_at     timestamptz not null default now(),
   decided_at     timestamptz
 );
@@ -142,7 +144,9 @@ create table business_info (
   hours_note  text,
   -- Most walks she'll take in one part of the day (morning, afternoon or evening).
   -- Group walks of the same type in the same part of the day count as one walk.
-  max_walks_per_slot int not null default 3 check (max_walks_per_slot between 1 and 20)
+  max_walks_per_slot int not null default 3 check (max_walks_per_slot between 1 and 20),
+  -- Inside this many hours of a walk, customers can only ask to cancel; she decides.
+  cancel_notice_hours int not null default 24 check (cancel_notice_hours between 0 and 168)
 );
 insert into business_info (id) values (1);
 
@@ -286,14 +290,50 @@ begin
 end;
 $$;
 
--- Customers can cancel their own bookings up to the day before.
-create or replace function cancel_booking(p_booking_id uuid) returns void
+-- When a part of the day starts, London time ("No preference" counts from the morning).
+create or replace function walk_starts_at(p_date date, p_window time_window) returns timestamptz
+language sql immutable as $$
+  select (p_date + case p_window when 'afternoon' then time '12:00' when 'evening' then time '17:00' else time '08:00' end)
+         at time zone 'Europe/London'
+$$;
+
+-- Customers cancel their own upcoming bookings. A request she hasn't approved yet, or an approved
+-- walk more than cancel_notice_hours away, is cancelled straight away. Closer than that, it becomes
+-- a cancellation request that she approves or declines. Returns 'cancelled' or 'requested'.
+create or replace function cancel_booking(p_booking_id uuid) returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  b bookings;
+  notice int;
+begin
+  select * into b from bookings
+  where id = p_booking_id and customer_id = auth.uid() and status in ('requested', 'approved')
+  for update;
+  if not found or walk_starts_at(b.booking_date, b.time_window) <= now() then
+    raise exception 'Booking cannot be cancelled';
+  end if;
+  if b.cancel_requested_at is not null then raise exception 'You have already asked to cancel this booking'; end if;
+
+  select cancel_notice_hours into notice from business_info where id = 1;
+  if b.status = 'requested' or walk_starts_at(b.booking_date, b.time_window) > now() + make_interval(hours => coalesce(notice, 24)) then
+    update bookings set status = 'cancelled' where id = b.id;
+    return 'cancelled';
+  end if;
+  update bookings set cancel_requested_at = now() where id = b.id;
+  return 'requested';
+end;
+$$;
+
+-- She approves (booking cancelled) or declines (booking stands) a cancellation request.
+create or replace function decide_cancellation(p_booking_id uuid, p_approve boolean) returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  update bookings set status = 'cancelled'
-  where id = p_booking_id and customer_id = auth.uid()
-    and status in ('requested', 'approved') and booking_date > london_today();
-  if not found then raise exception 'Booking cannot be cancelled'; end if;
+  if not is_owner() then raise exception 'Only the owner can do this'; end if;
+  update bookings
+  set status = case when p_approve then 'cancelled'::booking_status else status end,
+      cancel_requested_at = null
+  where id = p_booking_id and cancel_requested_at is not null and status = 'approved';
+  if not found then raise exception 'No cancellation request for that booking'; end if;
 end;
 $$;
 

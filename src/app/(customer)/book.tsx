@@ -14,7 +14,8 @@ import type { Dog, PaymentMethod, Service, ServiceKind, TimeWindow } from '../..
 /*
  * Booking is one question per step, starting with the date so availability is the first thing you see:
  *   1 When  - one or more dates, or the same weekdays every week (calendar shows free/full per part of day)
- *   2 Time  - morning, afternoon, evening or no preference (exact times go in the notes)
+ *   2 Time  - morning, afternoon, evening or no preference, the same for every date or chosen per date
+ *             (exact times go in the notes)
  *   3 What  - service and length
  *   4 Who   - which dogs (skipped when there's only one)
  *   5 Check - summary, payment, notes, send
@@ -65,6 +66,8 @@ export default function Book() {
   const [weekdays, setWeekdays] = useState<number[]>([]);
   const [weeks, setWeeks] = useState(4);
   const [window, setWindow] = useState<TimeWindow | null>(null);
+  const [sameTime, setSameTime] = useState(true);
+  const [perDate, setPerDate] = useState<Record<string, TimeWindow>>({});
   const [payment, setPayment] = useState<PaymentMethod>('card');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -130,7 +133,14 @@ export default function Book() {
   }, [often, picked, weekdays, weeks, today, maxDate, isDisabled]);
 
   // The dates that actually get booked: those with room at the chosen time of day.
-  const bookDates = useMemo(() => (window ? dates.filter((d) => freeAt(d, window)) : dates), [dates, window, freeAt]);
+  // One-off bookings of several dates can have a different time of day for each date.
+  const eachDay = often === 'once' && dates.length > 1 && !sameTime;
+  const windowFor = useCallback((d: string) => (eachDay ? perDate[d] ?? null : window), [eachDay, perDate, window]);
+  const bookDates = useMemo(
+    () => (eachDay ? dates.filter((d) => perDate[d] && freeAt(d, perDate[d])) : window ? dates.filter((d) => freeAt(d, window)) : dates),
+    [eachDay, dates, perDate, window, freeAt],
+  );
+  const timeChosen = eachDay ? dates.every((d) => perDate[d]) : !!window;
   const perDog = service?.kind === 'group_walk'; // group walks are priced per dog; solo walks and sit-ins per visit
   const oneDog = service?.max_dogs === 1; // solo walks
   const perVisit = service ? service.price_pence * (perDog ? dogIds.length : 1) : 0;
@@ -138,7 +148,7 @@ export default function Book() {
 
   const canNext = [
     dates.length > 0,
-    !!window && bookDates.length > 0,
+    timeChosen && bookDates.length > 0,
     !!service,
     dogIds.length > 0 && (!service || dogIds.length <= service.max_dogs),
     true,
@@ -160,12 +170,14 @@ export default function Book() {
     setPicked([]);
     setWeekdays([]);
     setWindow(null);
+    setSameTime(true);
+    setPerDate({});
     setNotes('');
     if (!skipWho) setDogIds([]);
   }
 
   async function submit() {
-    if (!service || !window || bookDates.length === 0) return;
+    if (!service || !timeChosen || bookDates.length === 0) return;
     setSubmitting(true);
     const batchId = bookDates.length > 1 ? newBatchId() : null;
     const results = await Promise.all(
@@ -173,7 +185,7 @@ export default function Book() {
         supabase.rpc('request_booking', {
           p_service_id: service.id,
           p_date: d,
-          p_time_window: window,
+          p_time_window: windowFor(d),
           p_dog_ids: dogIds,
           p_payment_method: payment,
           p_notes: notes || null,
@@ -291,8 +303,29 @@ export default function Book() {
         {step === 1 && (
           <>
             <Text style={styles.question}>What time of day?</Text>
-            {dates.length > 1 && <Text style={[text.muted, { marginBottom: 8 }]}>This applies to all {dates.length} dates.</Text>}
-            {(Object.keys(timeWindows) as TimeWindow[]).map((w) => {
+            {often === 'once' && dates.length > 1 && (
+              <View style={styles.segment}>
+                {([true, false] as const).map((same) => (
+                  <Pressable key={String(same)} onPress={() => setSameTime(same)} style={[styles.segmentItem, sameTime === same && styles.segmentOn]}>
+                    <Text style={[styles.segmentText, sameTime === same && { color: '#fff' }]}>{same ? 'Same for all' : 'Each day'}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+            {eachDay && dates.map((d) => (
+              <Card key={d}>
+                <Text style={[text.title, { marginBottom: 6 }]}>{dayLabel(d)}</Text>
+                <View style={styles.wrap}>
+                  {(Object.keys(timeWindows) as TimeWindow[]).map((w) => (
+                    <Chip key={w} label={w === 'any' ? 'Any time' : timeWindows[w].label} selected={perDate[d] === w}
+                      disabled={!freeAt(d, w)} onPress={() => setPerDate((p) => ({ ...p, [d]: w }))} />
+                  ))}
+                </View>
+              </Card>
+            ))}
+            {eachDay && <Text style={[text.muted, { marginTop: 4 }]}>Crossed-out times are full that day.</Text>}
+            {!eachDay && dates.length > 1 && <Text style={[text.muted, { marginBottom: 8 }]}>This applies to all {dates.length} dates.</Text>}
+            {!eachDay && (Object.keys(timeWindows) as TimeWindow[]).map((w) => {
               const free = dates.filter((d) => freeAt(d, w)).length;
               const full = dates.length - free;
               const none = free === 0;
@@ -318,7 +351,7 @@ export default function Book() {
               </Card>
               );
             })}
-            {window && bookDates.length < dates.length && bookDates.length > 0 && (
+            {!eachDay && window && bookDates.length < dates.length && bookDates.length > 0 && (
               <Text style={[text.muted, { marginTop: 4 }]}>
                 {timeWindows[window].label} is full on {dates.filter((d) => !bookDates.includes(d)).map(dayLabel).join(', ')}, so we'll only request the other {bookDates.length}.
               </Text>
@@ -380,7 +413,7 @@ export default function Book() {
           </>
         )}
 
-        {step === 4 && service && window && (
+        {step === 4 && service && timeChosen && (
           <>
             <Text style={styles.question}>Check and send</Text>
             <Card>
@@ -393,10 +426,20 @@ export default function Book() {
                   <Text style={text.muted}>{dogs.filter((d) => dogIds.includes(d.id)).map((d) => d.name).join(', ')}</Text>
                 </View>
               </View>
-              <Text style={[text.body, { marginTop: 10 }]}>
-                {bookDates.length === 1 ? dayLabel(bookDates[0]) : `${bookDates.length} dates`} · {timeWindows[window].label}
-              </Text>
-              {bookDates.length > 1 && <Text style={text.muted}>{bookDates.map(dayLabel).join(', ')}</Text>}
+              {eachDay ? (
+                <View style={{ marginTop: 10 }}>
+                  {bookDates.map((d) => (
+                    <Text key={d} style={text.body}>{dayLabel(d)} · {timeWindows[perDate[d]].label}</Text>
+                  ))}
+                </View>
+              ) : (
+                <>
+                  <Text style={[text.body, { marginTop: 10 }]}>
+                    {bookDates.length === 1 ? dayLabel(bookDates[0]) : `${bookDates.length} dates`} · {window ? timeWindows[window].label : ''}
+                  </Text>
+                  {bookDates.length > 1 && <Text style={text.muted}>{bookDates.map(dayLabel).join(', ')}</Text>}
+                </>
+              )}
               {(perDog && dogIds.length > 1) || bookDates.length > 1 ? (
                 <Text style={[text.muted, { marginTop: 10 }]}>
                   {formatPrice(service.price_pence)}

@@ -113,6 +113,35 @@ select assert(request_booking((select id from svc where kind='group_walk' and du
   array['10000000-0000-0000-0000-000000000004']::uuid[], 'card') is not null, 'joining an existing group walk still works when the slot is full');
 select assert((select not bookable and not morning from day_availability((select mon + 2 from t), (select mon + 2 from t))),
   'time off day shows as not bookable');
+-- Cancellations: inside the notice period an approved walk needs her OK; otherwise it cancels straight away.
+set test.uid = '00000000-0000-0000-0000-000000000002';
+update business_info set cancel_notice_hours = 168;
+create temp table cb as select request_booking((select id from svc where kind='solo_walk' and duration_min=60), (select mon + 4 from t), 'evening',
+  array['10000000-0000-0000-0000-000000000002']::uuid[], 'card') as id;
+update bookings set status = 'approved', booking_date = london_today() + 1 where id = (select id from cb);
+select assert(cancel_booking((select id from cb)) = 'requested', 'close to the walk, cancelling becomes a request');
+select assert((select status = 'approved' and cancel_requested_at is not null from bookings where id = (select id from cb)),
+  'booking stays approved while she decides');
+select expect_error($q$ select cancel_booking((select id from cb)) $q$, 'cannot ask twice');
+select expect_error($q$ select decide_cancellation((select id from cb), true) $q$, 'customer cannot approve their own cancellation');
+set test.uid = '00000000-0000-0000-0000-000000000001';
+select decide_cancellation((select id from cb), false);
+select assert((select status = 'approved' and cancel_requested_at is null from bookings where id = (select id from cb)),
+  'declined request leaves the booking in place');
+set test.uid = '00000000-0000-0000-0000-000000000002';
+select cancel_booking((select id from cb));
+set test.uid = '00000000-0000-0000-0000-000000000001';
+select decide_cancellation((select id from cb), true);
+select assert((select status = 'cancelled' from bookings where id = (select id from cb)), 'approved request cancels the booking');
+set test.uid = '00000000-0000-0000-0000-000000000002';
+update bookings set status = 'requested', cancel_requested_at = null where id = (select id from cb);
+select assert(cancel_booking((select id from cb)) = 'cancelled', 'a request she has not approved yet cancels straight away');
+update bookings set status = 'approved' where id = (select id from cb);
+update business_info set cancel_notice_hours = 0;
+select assert(cancel_booking((select id from cb)) = 'cancelled', 'outside the notice period it cancels straight away');
+update bookings set status = 'approved', booking_date = london_today() - 1 where id = (select id from cb);
+select expect_error($q$ select cancel_booking((select id from cb)) $q$, 'past walks cannot be cancelled');
+update business_info set cancel_notice_hours = 24;
 \echo BOOKING TESTS PASSED
 
 -- Walk updates: customers only see posts that tag their own dogs.

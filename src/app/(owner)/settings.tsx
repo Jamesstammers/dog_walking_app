@@ -28,6 +28,7 @@ export default function Settings() {
   const [savingContact, setSavingContact] = useState(false);
   const [offTo, setOffTo] = useState('');
   const [perSlot, setPerSlot] = useState('3');
+  const [noticeHours, setNoticeHours] = useState('24');
 
   const load = useCallback(async () => {
     const [{ data: s }, { data: h }, { data: b }] = await Promise.all([
@@ -38,6 +39,7 @@ export default function Settings() {
     if (b) {
       const info = b as Record<string, unknown>;
       setPerSlot(String(info.max_walks_per_slot ?? 3));
+      setNoticeHours(String(info.cancel_notice_hours ?? 24));
       setContact(Object.fromEntries(contactFields.map((f) => [f.key, String(info[f.key] ?? '')])));
     }
     const list = (s as Service[]) ?? [];
@@ -70,13 +72,18 @@ export default function Settings() {
 
   async function saveCapacity() {
     const n = parseInt(perSlot, 10);
+    const h = parseInt(noticeHours, 10);
     if (!(n >= 1 && n <= 20)) {
-      notify('Check the number', 'Choose between 1 and 20.');
+      notify('Check the number', 'Visits per part of the day: choose between 1 and 20.');
       return;
     }
-    const { error } = await supabase.from('business_info').update({ max_walks_per_slot: n }).eq('id', 1);
+    if (!(h >= 0 && h <= 168)) {
+      notify('Check the number', 'Cancellation notice: choose between 0 and 168 hours.');
+      return;
+    }
+    const { error } = await supabase.from('business_info').update({ max_walks_per_slot: n, cancel_notice_hours: h }).eq('id', 1);
     if (error) notify('Could not save', error.message);
-    else notify('Saved', `Customers see a part of the day as full once ${n} ${n === 1 ? 'visit is' : 'visits are'} booked or requested.`);
+    else notify('Saved', `Up to ${n} ${n === 1 ? 'visit' : 'visits'} per part of the day. Inside ${h} hours, customers ask you before cancelling.`);
   }
 
   async function saveContact() {
@@ -156,6 +163,10 @@ export default function Settings() {
         Most visits you'll take in each part of the day (morning, afternoon, evening). Group walks of the same type count as one.
       </Text>
       <Field label="Visits per part of the day" value={perSlot} onChangeText={setPerSlot} keyboardType="number-pad" />
+      <Field label="Cancellation notice (hours)" value={noticeHours} onChangeText={setNoticeHours} keyboardType="number-pad" />
+      <Text style={[text.muted, { marginBottom: 8, marginTop: -4 }]}>
+        Closer to the walk than this, customers can only ask to cancel and you decide.
+      </Text>
       <Button title="Save availability" variant="secondary" onPress={saveCapacity} />
 
       <SectionTitle>Time off</SectionTitle>

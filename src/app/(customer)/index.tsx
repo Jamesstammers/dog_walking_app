@@ -4,7 +4,8 @@ import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { ServiceBadge } from '../../components/BookingCard';
 import { Button, Card, colors, fonts, text } from '../../components/ui';
 import { useAuth } from '../../lib/auth';
-import { formatBookingWhen, formatPrice, londonDateKey, statusLabels } from '../../lib/format';
+import { useBusinessInfo } from '../../lib/business';
+import { formatBookingWhen, formatPrice, londonDateKey, statusLabels, walkStartsAt } from '../../lib/format';
 import { notify, confirmAction } from '../../lib/dialog';
 import { supabase } from '../../lib/supabase';
 import type { Booking } from '../../lib/types';
@@ -13,6 +14,11 @@ export default function MyBookings() {
   const { session, profile } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const { info } = useBusinessInfo();
+  const noticeHours = info?.cancel_notice_hours ?? 24;
+  // Close to the walk, cancelling an approved booking needs her OK.
+  const needsOk = (b: Booking) =>
+    b.status === 'approved' && walkStartsAt(b.booking_date, b.time_window).getTime() <= Date.now() + noticeHours * 3_600_000;
 
   const load = useCallback(async () => {
     if (!session) return;
@@ -33,12 +39,21 @@ export default function MyBookings() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   function cancel(booking: Booking) {
-    confirmAction('Cancel this booking?', formatBookingWhen(booking), 'Cancel booking', async () => {
-      const { error } = await supabase.rpc('cancel_booking', { p_booking_id: booking.id });
-      if (error) notify('Could not cancel', error.message);
-      else notify('Booking cancelled');
-      load();
-    });
+    const ask = needsOk(booking);
+    confirmAction(
+      ask ? 'Ask to cancel?' : 'Cancel this booking?',
+      ask
+        ? `${formatBookingWhen(booking)} is less than ${noticeHours} hours away, so we'll check with your walker first.`
+        : formatBookingWhen(booking),
+      ask ? 'Ask to cancel' : 'Cancel booking',
+      async () => {
+        const { data, error } = await supabase.rpc('cancel_booking', { p_booking_id: booking.id });
+        if (error) notify('Could not cancel', error.message);
+        else if (data === 'requested') notify('Cancellation requested', "We've let your walker know. You'll see here once she's replied.");
+        else notify('Booking cancelled');
+        load();
+      },
+    );
   }
 
   return (
@@ -60,16 +75,16 @@ export default function MyBookings() {
       }
       ListEmptyComponent={<Text style={[text.muted, { textAlign: 'center', marginTop: 40 }]}>No bookings yet.</Text>}
       renderItem={({ item }) => {
-        const upcoming = item.booking_date > londonDateKey(new Date());
-        const canCancel = upcoming && (item.status === 'requested' || item.status === 'approved');
+        const upcoming = walkStartsAt(item.booking_date, item.time_window).getTime() > Date.now();
+        const canCancel = upcoming && !item.cancel_requested_at && (item.status === 'requested' || item.status === 'approved');
         return (
           <Card>
             <View style={styles.row}>
               <ServiceBadge kind={item.services?.kind} />
               <View style={{ flex: 1 }}>
                 <Text style={text.title}>{item.services?.name}</Text>
-                <Text style={[styles.status, item.status === 'approved' && { color: colors.primary }]}>
-                  {statusLabels[item.status]}{item.batch_id ? ' · Block booking' : ''}
+                <Text style={[styles.status, item.status === 'approved' && { color: colors.primary }, !!item.cancel_requested_at && { color: colors.accent }]}>
+                  {item.cancel_requested_at ? 'Cancellation requested' : statusLabels[item.status]}{item.batch_id ? ' · Block booking' : ''}
                 </Text>
               </View>
             </View>
@@ -78,7 +93,7 @@ export default function MyBookings() {
               {item.booking_dogs?.map((bd) => bd.dogs.name).join(', ')} · {formatPrice(item.price_pence)} ·{' '}
               {item.payment_method === 'card' ? 'Card' : 'Invoice'}
             </Text>
-            {canCancel && <Button variant="danger" title="Cancel" onPress={() => cancel(item)} />}
+            {canCancel && <Button variant="danger" title={needsOk(item) ? 'Ask to cancel' : 'Cancel'} onPress={() => cancel(item)} />}
           </Card>
         );
       }}

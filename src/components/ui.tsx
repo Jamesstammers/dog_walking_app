@@ -56,10 +56,10 @@ export function Card({ children, selected, onPress }: { children: ReactNode; sel
   );
 }
 
-export function Chip({ label, selected, onPress }: { label: string; selected?: boolean; onPress: () => void }) {
+export function Chip({ label, selected, onPress, disabled }: { label: string; selected?: boolean; onPress: () => void; disabled?: boolean }) {
   return (
-    <Pressable onPress={onPress} style={[styles.chip, selected && styles.chipSelected]}>
-      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
+    <Pressable onPress={onPress} disabled={disabled} style={[styles.chip, selected && styles.chipSelected, disabled && { opacity: 0.4 }]}>
+      <Text style={[styles.chipText, selected && styles.chipTextSelected, disabled && { textDecorationLine: 'line-through' }]}>{label}</Text>
     </Pressable>
   );
 }
